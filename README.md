@@ -14,6 +14,10 @@
 [![Tests](https://img.shields.io/badge/selftest-37%20passed-3ba55d)](#可视化验证与自测)
 [![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
+<img src="./assets/hero.png" alt="麦麦健身餐 · 组合搜索结果与可视化验证看板" width="100%">
+
+<sub>截图来自仓库内置的可视化验证看板（演示数据）。完整看板见 [`docs/index.html`](./docs/index.html)，全页长图见 [`assets/demo.png`](./assets/demo.png)。</sub>
+
 ---
 
 ## 目录
@@ -248,7 +252,9 @@ mcd-meal-community/
 ├── workbuddy.md                # WorkBuddy 对话上下文
 ├── LICENSE                     # MIT
 ├── assets/
-│   └── output_template.md      # 输出模板 A/B/C/D
+│   ├── output_template.md      # 输出模板 A/B/C/D
+│   ├── hero.png                # README 首屏截图
+│   └── demo.png                # 验证看板全页长图
 ├── docs/
 │   └── index.html              # 已生成的演示看板（GitHub Pages 可直接用）
 ├── scripts/                    # 14 个 Python 脚本，零第三方依赖
