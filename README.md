@@ -4,7 +4,7 @@
 
 基于**麦当劳中国官方 MCP Server** 开发的 WorkBuddy Skill。「搭」既是**搭配**（把餐品算成一套），也是**搭子**（一起吃、互相参考的人）。
 
-> 🖥️ **在线预览**：开启 GitHub Pages 后访问 `https://<你的 GitHub 用户名>.github.io/<仓库名>/`
+> 🖥️ **在线预览**：开启 GitHub Pages 后访问 <https://archerko-code.github.io/mcd-meal-community/>
 > （设置路径：仓库 Settings → Pages → Source 选 `Deploy from a branch` → Branch 选 `main` / 目录选 `/docs`）
 >
 > 不想开 Pages 也可以直接打开仓库内的 [`docs/index.html`](./docs/index.html)，或本地下载后双击查看。
