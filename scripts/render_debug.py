@@ -238,7 +238,7 @@ HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>mcd-meal-community 可视化验证</title>
+<title>麦麦营养搭子 · 可视化验证</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -307,7 +307,7 @@ pre{background:#0d1117;border:1px solid var(--line);border-radius:6px;padding:10
 </head>
 <body>
 <div class="wrap">
-  <h1>mcd-meal-community · 可视化验证</h1>
+  <h1>麦麦营养搭子 · 可视化验证</h1>
   <div class="disc">本页为参赛作品的功能自检看板。页面内的菜单、营养与价格数据来自
     仓库内构造的<b>演示数据</b>，仅用于离线复现整条链路，<b>不代表麦当劳真实菜单与价格</b>；
     真实数值以麦当劳官方渠道的实时结果为准。本项目非麦当劳官方产品。</div>
