@@ -263,12 +263,27 @@ def coupon_final_price(c, price, item_ids):
         final = price - c["amount"]
     elif c["discount"]:
         d = c["discount"]
-        if d > 1:                      # 7.5 折 -> 0.75
-            d = d / 10.0 if d <= 10 else 1.0
+        # 折扣写法归一（同一种「8.5 折」在不同接口有三种写法）：
+        #   d <= 1        -> 直接当折扣率（0.85 = 8.5 折）
+        #   1 < d <= 9.99 -> X.Y 折（8.5  -> 0.85）
+        #   9.99 < d <= 99 -> XY 折（85   -> 0.85）
+        #   d > 99        -> 无法识别，视为不适用，避免静默按原价计价
+        if d <= 1:
+            pass
+        elif d <= 9.99:
+            d = d / 10.0
+        elif d <= 99:
+            d = d / 100.0
+        else:
+            return None
         final = price * d
         if c["cap"]:
             final = max(final, price - c["cap"])
     else:
+        return None
+    # 面额大到把价格打到 0 甚至负数，几乎一定是解析错误而非真实赠券，
+    # 宁可放弃这张券也不能给用户报一个 ¥0.00
+    if final <= 0:
         return None
     return max(final, 0.0)
 
@@ -535,6 +550,7 @@ def main():
              "effective_calories_cap": max_cal,
              "stats": {"menu_items": len(products), "candidates": sum(len(v) for v in kept.values()),
                        "combos": len(combos), "coupons": len(coupons),
+                       "truncated": len(combos) >= MAX_COMBOS,
                        "unmatched_nutrition": sorted(set(missing))[:20]},
              "plans": plans}},
         ensure_ascii=False, indent=2))

@@ -52,13 +52,50 @@ def _product_ids(row):
         return []
 
 
+def _resolve_post(args):
+    """定位组合数据：优先读 posts 表；查不到且给了 --ids 时用命令行现造一条。
+
+    根因说明：combo_search.py 只做计算、不落库，它返回的 combo_hash 在 posts 表
+    里并不存在。如果 checkout 强制要求先发布到搭配区，用户说「就买方案1」就会
+    在下单链路上撞墙。核价只需要商品编码，不需要发帖——所以 --ids 直通。
+    """
+    row = _load_post(args.hash) if args.hash else None
+    if row:
+        return row, None
+    if not args.ids:
+        return None, (
+            "posts 表中未找到该组合，且未提供 --ids。二选一：\n"
+            "  1) 先发布到搭配区：python3 write_post.py --ids <餐品ID逗号分隔> "
+            "--title ... --summary ... --calories ... --price ... --protein ...\n"
+            "  2) 直接用 --ids 核价（推荐，不产生社区数据）：\n"
+            "     python3 checkout.py --ids <餐品ID逗号分隔> --price <估算价> "
+            "--store-code ... --out ..."
+        )
+    ids = [x.strip() for x in args.ids.split(",") if x.strip()]
+    if not ids:
+        return None, "--ids 解析后为空"
+    h = store.combo_hash(ids)
+    synthetic = {
+        "combo_hash": h,
+        "title": args.title or "、".join(ids),
+        "combo_summary": args.summary or " + ".join(ids),
+        "product_ids": json.dumps(ids, ensure_ascii=False),
+        "total_calories": args.calories,
+        "total_price": args.price,
+        "total_protein": args.protein,
+        "source": "adhoc",
+    }
+    return synthetic, None
+
+
 def prepare(args):
-    row = _load_post(args.hash)
-    if not row:
-        return _fail("未找到该组合，请先发布到搭配区（write_post.py）")
+    row, err = _resolve_post(args)
+    if err:
+        return _fail(err)
+    h = row["combo_hash"]
     ids = _product_ids(row)
     if not ids:
-        return _fail("该组合缺少 product_ids，请用 write_post.py 重新发布一次以补全字段")
+        return _fail("该组合缺少 product_ids，请改用 --ids 直接指定餐品编码")
 
     real, virt = store.split_virtual(ids)
     if not real:
@@ -73,7 +110,7 @@ def prepare(args):
         req["couponId"] = args.coupon
 
     data = {
-        "combo_hash": args.hash,
+        "combo_hash": h,
         "title": row.get("title"),
         "summary": row.get("combo_summary"),
         "real_product_ids": real,
@@ -96,9 +133,10 @@ def prepare(args):
 
 
 def confirm(args):
-    row = _load_post(args.hash)
-    if not row:
-        return _fail("未找到该组合")
+    row, err = _resolve_post(args)
+    if err:
+        return _fail(err)
+    h = row["combo_hash"]
     try:
         obj = load_json(args.confirm)
     except Exception as e:
@@ -106,10 +144,14 @@ def confirm(args):
 
     pay = to_num(pick(obj, "payAmount", "actualAmount", "payPrice",
                       "totalAmount", "amount", "totalPrice"))
-    origin = to_num(pick(obj, "originAmount", "totalOriginAmount",
-                         "originalAmount", "totalAmount"))
     discount = to_num(pick(obj, "discountAmount", "couponAmount",
                            "preferentialAmount", "discount"))
+    # ⚠️ 原价只能从专用键取，绝不能落到 totalAmount / amount 这类歧义键——
+    #    很多接口的 totalAmount 是「应付价」，拿它当原价会得出假的优惠金额。
+    origin = to_num(pick(obj, "originAmount", "totalOriginAmount",
+                         "originalAmount", "listPrice", "originalPrice"))
+    if origin is None and pay is not None and discount is not None:
+        origin = round(pay + discount, 2)   # 用应付价 + 优惠额反推，至少数量关系自洽
     if pay is None:
         return _fail("无法从核价结果解析出应付金额，请核对 MCP 返回结构")
 
@@ -125,7 +167,7 @@ def confirm(args):
         verdict = "官方更高"
 
     data = {
-        "combo_hash": args.hash,
+        "combo_hash": h,
         "summary": row.get("combo_summary"),
         "local_estimate": local,
         "official": {"pay_amount": pay, "origin_amount": origin,
@@ -143,7 +185,15 @@ def confirm(args):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--hash", required=True)
+    ap.add_argument("--hash", default=None,
+                    help="组合哈希（与 --ids 二选一；posts 表里已存在时用这个）")
+    ap.add_argument("--ids", default=None,
+                    help="餐品编码逗号分隔（与 --hash 二选一；无需先发布到搭配区）")
+    ap.add_argument("--title", default=None, help="仅 --ids 模式下用于展示")
+    ap.add_argument("--summary", default=None, help="仅 --ids 模式下用于展示")
+    ap.add_argument("--calories", type=float, default=None, help="仅 --ids 模式下的本地估算热量")
+    ap.add_argument("--price", type=float, default=None, help="仅 --ids 模式下的本地估算价格")
+    ap.add_argument("--protein", type=float, default=None, help="仅 --ids 模式下的本地估算蛋白质")
     ap.add_argument("--store-code", default=None)
     ap.add_argument("--order-type", default=DEFAULT_ORDER_TYPE,
                     help="就餐方式，取值以 MCP 实际定义为准")
@@ -152,6 +202,12 @@ def main():
     ap.add_argument("--confirm", default=None,
                     help="calculate-price 返回的 json 文件，用于回填官方价")
     args = ap.parse_args()
+    if not args.hash and not args.ids:
+        return _fail("需要 --hash 或 --ids 之一")
+    if args.hash and args.ids:
+        # 两者都给时以 --ids 为准（搜索结果直接下单的场景）
+        args.hash = store.combo_hash(
+            [x.strip() for x in args.ids.split(",") if x.strip()])
     return confirm(args) if args.confirm else prepare(args)
 
 

@@ -86,7 +86,7 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 - `posts` 表新增 `product_ids` 列（`ALTER TABLE` 迁移，不重建库）——原表只有不可逆的 `combo_hash`，无法反查商品编码，下单链路走不通。
 - 新增第 4 张表 `orders`。
 - 兑现上一轮承诺：冰水作为虚拟商品，下单前由 `store.split_virtual()` 自动剥离出商品列表，改写进订单备注「请另附一杯免费冰水，谢谢」。
-- 自测从 22 项扩到 **37 项**，新增下单全链路断言。
+- 自测从 22 项扩到 **52 项**（2026-10-09 审计后又补 15 项回归），新增下单全链路断言。
 
 ### 第 4 轮 · 核对官方规则
 
@@ -140,17 +140,50 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 新增「为什么叫搭子」章节、「核心能力」拆成推荐区/搭配区两组、`设计取舍` 补 3 条社区相关取舍、
 `SKILL.md` frontmatter 与标题、本文件、报名 Issue 文案。
 
+### 第 7 轮 · 全量代码审计（用户指令：「check 一下方案和代码有没有问题和 bug」）
+
+**审计方法**：通读 14 个脚本 + 逐条用可复现脚本验证猜想，不做纸面推断。共实锤 8 个问题，
+其中 3 个🔴（真实下单链路相关）、5 个🟠，全部当场修复并补 15 条回归断言。
+
+**🔴 修复的三个**
+
+| # | 问题 | 修复 |
+|---|---|---|
+| 1 | **下单闭环断点**：`combo_search` 只算不落库，返回的 `combo_hash` 不在 posts 表。用户说「就买方案1」→ `checkout.py` 直接报「未找到该组合」，必须先 `write_post.py`，但 SKILL.md 与报错都没说 | `checkout.py` / `order.py` 新增 `--ids` 直通，不再被「先发帖」绑架；报错信息给出两条可照抄的出路；SKILL.md §8 重写为 `--hash`/`--ids` 双轨 |
+| 2 | **任何人重复发布同一组合会覆盖营养/价格**（实测：先写 cal=400/¥10.5，后写 999/¥88 → 数据被污染）。更糟的是**不传 `--calories` 会把原值清成 NULL** | `UPDATE` 改用 `COALESCE`：营养/价格只补空、不覆盖；title/summary 是文案，允许后来者改 |
+| 3 | **券折扣 `85`（百分写法）被静默当成不打折**：实测原价 20 → 仍报 20.0 而非 17.0，用户多花钱且无任何提示 | 折扣写法归一：`<=1` 折扣率 / `1~9.99` X.Y折 / `9.99~99` XY折 / `>99` 视为不适用。另加保护：面额把价格打到 ≤0 时弃用该券，不报 ¥0 |
+
+**🟠 修复的五个**
+
+| # | 问题 | 修复 |
+|---|---|---|
+| 4 | `query_posts` 的 `total` 报的是**本页条数**而非总数，调用方无法翻页 | 拆成 `total`（过滤后总数）+ `returned`（本页条数） |
+| 5 | `checkout --confirm` 的原价探测键含 `totalAmount`，与应付价键重叠——若 MCP 只回 `totalAmount`，会被同时当应付价和原价，得出假优惠 | 原价只认专用键；缺省时用「应付价 + 优惠额」反推，保证数量关系自洽 |
+| 6 | `order --record` 不核对实付价与用户确认价——**真实扣款价和用户同意的金额对不上时没有任何告警** | 新增 `price_delta` 与 `warning`，差额 ≥0.01 必须先向用户说明再给支付链接；SKILL.md 红线同步加严 |
+| 7 | `MCD_DB_PATH` 指向的父目录不存在时 `sqlite3.OperationalError: unable to open database file`（实测复现） | `get_conn()` 自动创建 DB 父目录 |
+| 8 | `datetime.utcnow()` 在 Python 3.12+ 已弃用（3.13.14 实测触发 DeprecationWarning） | 改用 `datetime.now(timezone.utc)` |
+
+**顺带发现但未改的**（属设计约定或低风险，记录在案）：
+`MAX_COMBOS=60000` 触顶会静默截断（已加 `stats.truncated` 标记暴露出来）；
+餐品分类靠关键词启发式（`水` 在饮品词表里）可能误判；
+`render_debug` 的 `tempfile.mkdtemp` 不清理（演示用，无累积风险）。
+
+**一个值得记下的发现**：修好「不覆盖」之后，原有断言「约束过紧时进入 tier>=2」反而失败了——
+因为那条测试以前**靠的是「重复发布会清空营养字段」这个 bug** 才让紧约束筛不出结果。
+测试在为一个 bug 作证。已把测试约束降到 `--max-calories 0.5` 让它真正触发降级。
+
+**验证**：`selftest.py` 从 37 项扩到 **52 项**，含 6 个 bug 的针对性回归，退出码 0。
+
 ---
 
 ## 3. WorkBuddy 能力使用清单
-
 | 能力 | 在本项目中的实际用途 |
 |---|---|
 | **对话式需求拆解** | 策划案 → 12 节执行手册（`SKILL.md`），含意图路由表与交互指令映射表 |
 | **MCP 连接器** | 配置并驱动 `mcd-mcp`（11 个 Tool） |
 | **实调探索** | 发现 `list-nutrition-foods` 返回 TOON 格式这一文档未载的关键事实 |
 | **代码生成** | 14 个 Python 脚本，2570 行，**零第三方依赖** |
-| **测试生成** | `selftest.py` 37 项断言，独立临时库，退出码 0 = 全绿 |
+| **测试生成** | `selftest.py` 52 项断言，独立临时库，退出码 0 = 全绿 |
 | **可视化** | `render_debug.py` 生成单文件 HTML 看板，五块区域验证链路 |
 | **网页抓取** | 读取官方大赛仓库 README 与正式规则，纠正策划案中的错误奖项设定 |
 | **长任务记忆** | 工作区记忆 `2026-10-09.md`（9388 字节）记录三轮迭代的全部决策与 Bug |
@@ -164,7 +197,7 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 | 证据 | 位置 / 复核方式 |
 |---|---|
 | 技能执行手册 | `SKILL.md`（12 节，277 行） |
-| 端到端自测 | `cd scripts && python3 selftest.py` → `✅ 全部通过`，退出码 0，37 项 PASS |
+| 端到端自测 | `cd scripts && python3 selftest.py` → `✅ 全部通过`，退出码 0，52 项 PASS |
 | 可视化验证页 | `python3 render_debug.py` → 生成 `data/verify.html`，双击即看 |
 | 零依赖声明 | 14 个脚本仅 import 标准库（`sqlite3` / `json` / `hashlib` / `urllib` / `argparse`） |
 | MCP 集成说明 | `MCP_INTEGRATION.md`（含 3 张 mermaid 时序图） |

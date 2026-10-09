@@ -153,7 +153,7 @@ Object Notation）紧凑格式而非标准 JSON 数组，形如：
 |---|---|
 | MCP 连接器配置 | ✅ 已配置（`mcp-config.example.json`） |
 | 11 个 Tool 的调用载荷生成与返回解析 | ✅ 已实现，含字段容错 |
-| 全链路端到端回归测试 | ✅ `scripts/selftest.py` 37 项断言全绿（在 mock 返回数据上） |
+| 全链路端到端回归测试 | ✅ `scripts/selftest.py` 52 项断言全绿（在 mock 返回数据上） |
 | 真实 Token 联调 | ⏳ 待完成（脚本字段探测层已预留多候选键名，需按真实返回校准） |
 
 仓库提供的 `data/demo/` 内为构造的示例数据，用于让自测与可视化验证页可离线复现，

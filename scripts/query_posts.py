@@ -73,6 +73,7 @@ def main():
     }[args.sort]
     posts.sort(key=key, reverse=(args.sort == "new"))
 
+    total = len(posts)          # 过滤后的总数（翻页判断依据）
     posts = posts[: max(1, args.limit)]
 
     if args.with_comments:
@@ -89,7 +90,8 @@ def main():
             conn.close()
 
     print(json.dumps(
-        {"ok": True, "data": {"total": len(posts), "sort": args.sort, "posts": posts}},
+        {"ok": True, "data": {"total": total, "returned": len(posts),
+                              "sort": args.sort, "posts": posts}},
         ensure_ascii=False, indent=2))
     return 0
 

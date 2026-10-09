@@ -154,26 +154,52 @@ python3 query_posts.py --max-calories 600 --max-price 30 --sort price
 
 推荐只是半程。把方案真正落单要三步，**脚本准备参数、Agent 调 MCP**。
 
+**定位组合：`--hash` 与 `--ids` 二选一**
+
+| 场景 | 用哪个 |
+|---|---|
+| 用户已把方案发布到搭配区（`write_post.py` 跑过） | `--hash <combo_hash>` |
+| 用户看完推荐直接说「就买方案N」（**最常见**） | `--ids <方案N的product_ids逗号分隔> --price <方案N的final_price>` |
+
+⚠️ `combo_search.py` 只算不落库，它返回的 `combo_hash` **不在 posts 表里**。
+别为了让下单跑通而偷偷调 `write_post.py`——那会往社区塞一条用户没主动发布的记录。
+直接用 `--ids`，干净且不打扰社区。
+
 **第一步 · 精确核价**
 
 ```bash
+# 场景 A：组合已在搭配区
 python3 checkout.py --hash <combo_hash> --store-code <门店编码> \
   --order-type takeaway [--coupon <couponId>] --out ../data/mcp_cache/price_req.json
+
+# 场景 B：直接从搜索结果下单（推荐）
+python3 checkout.py --ids "<product_ids逗号分隔>" --price <final_price> \
+  --store-code <门店编码> --order-type takeaway \
+  [--coupon <couponId>] --out ../data/mcp_cache/price_req.json
 ```
 
 读 `data.calculate_price_request`，交给 MCP `calculate-price`，返回存文件后回填：
 
 ```bash
-python3 checkout.py --hash <combo_hash> --confirm ../data/mcp_cache/price_result.json
+python3 checkout.py --ids "<product_ids逗号分隔>" --confirm ../data/mcp_cache/price_result.json
 ```
+
+⚠️ `--confirm` 同样要带 `--hash` 或 `--ids`（combo_hash 不可逆，脚本无法从哈希反推商品编码）。
 
 `verdict` 为「一致」就直接用；否则**以 `official.pay_amount` 覆盖本地估算**再展示。
 
 **第二步 · 下单**
 
 ```bash
+# 场景 A：组合已在搭配区
 python3 order.py --hash <combo_hash> --store-code <门店编码> \
   --order-type takeaway --user <用户ID> \
+  [--address-id <地址ID>] [--coupon <couponId>] [--confirmed-price 15.5] \
+  --out ../data/mcp_cache/order_req.json
+
+# 场景 B：直接从搜索结果下单（推荐）
+python3 order.py --ids "<product_ids逗号分隔>" --price <final_price> \
+  --store-code <门店编码> --order-type takeaway --user <用户ID> \
   [--address-id <地址ID>] [--coupon <couponId>] [--confirmed-price 15.5] \
   --out ../data/mcp_cache/order_req.json
 ```
@@ -225,7 +251,7 @@ hot_score = (net_votes + 1)^0.8 / (hours_since_post + 2)^0.5
 5. **限流**：MCP 每分钟 600 次。不要为每个候选组合都调 `calculate-price`，只对 Top3 调。
 6. **隐私**：不输出用户手机号、完整配送地址；门店与用户标识按脱敏处理。
 7. **社区数据**：只读写本技能 `data/community.db`，不碰其它数据库；`user_id` 用会话内稳定标识即可，不要索取真实身份。
-8. **下单不可自作主张**：`create-order` 是真实扣款动作，必须先复述订单要素并得到用户明确同意；支付链接只能转述 MCP 返回值，**不得自己构造**。
+8. **下单不可自作主张**：`create-order` 是真实扣款动作，必须先复述订单要素并得到用户明确同意；支付链接只能转述 MCP 返回值，**不得自己构造**。`order.py --record` 返回的 `warning` 若提示实付与确认价有差额，**必须先向用户说明差额**，不得直接把支付链接甩过去。
 9. **虚拟商品不进订单**：`__ice_water__` 只能出现在本地组合与推荐展示里，下单前必须剥离并转成 `remark`。
 
 ## 11. 脚本速查
@@ -242,8 +268,8 @@ hot_score = (net_votes + 1)^0.8 / (hours_since_post + 2)^0.5
 | `hot_score.py` | 热榜分数 | `--net --hours` |
 | `seen.py` | 已推列表查看/重置 | `--session --reset` |
 | `render_debug.py` | 生成可视化验证页 | `--samples --out --live` |
-| `checkout.py` | 核价：准备载荷 / 回填官方价 | `--hash --store-code --order-type --coupon --confirm` |
-| `order.py` | 下单：载荷 / 记录 / 列表 / 同步 | `--hash --store-code --record --list --sync --order-no` |
+| `checkout.py` | 核价：准备载荷 / 回填官方价 | `--hash\|--ids --store-code --order-type --coupon --confirm --price` |
+| `order.py` | 下单：载荷 / 记录 / 列表 / 同步 | `--hash\|--ids --store-code --record --list --sync --order-no --price` |
 | `selftest.py` | 端到端自测（独立临时库） | 直接运行，退出码 0 = 全通过 |
 | `store.py` | 共享数据层（被 import） | 直接运行 = 初始化 DB |
 

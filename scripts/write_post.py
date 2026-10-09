@@ -41,10 +41,15 @@ def main():
         ).fetchone()
         ids_json = json.dumps(ids, ensure_ascii=False)
         if existed:
-            # 同一组合已存在：更新元信息，不重复插入，保证评论数据天然打通
+            # 同一组合已存在：复用记录保证评论数据天然打通。
+            # ⚠️ 营养/价格字段用 COALESCE 只补空、不覆盖——同一 combo_hash 对应
+            #    同一组餐品，营养与价格是客观事实，不该被后来者乱填的数据覆盖；
+            #    title / summary 是展示文案，允许后来者修改。
             conn.execute(
                 """UPDATE posts SET title=?, combo_summary=?, product_ids=?,
-                   total_calories=?, total_price=?, total_protein=?
+                   total_calories=COALESCE(total_calories, ?),
+                   total_price=COALESCE(total_price, ?),
+                   total_protein=COALESCE(total_protein, ?)
                    WHERE combo_hash=?""",
                 (args.title, args.summary, ids_json, args.calories, args.price,
                  args.protein, h),
@@ -65,7 +70,11 @@ def main():
         conn.close()
 
     print(json.dumps(
-        {"ok": True, "data": {"combo_hash": h, "action": action, "id": pid}},
+        {"ok": True,
+         "data": {"combo_hash": h, "action": action, "id": pid,
+                  "note": ("组合已存在，复用原记录；评论与票数自动继承。"
+                           "营养/价格字段只补空、不覆盖，防止后发数据污染") 
+                  if action == "updated" else None}},
         ensure_ascii=False))
     return 0
 

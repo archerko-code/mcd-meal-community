@@ -53,13 +53,44 @@ def _ids(row):
         return []
 
 
+def _resolve_post(args):
+    """定位组合数据：优先读 posts 表；查不到且给了 --ids 时用命令行现造一条。
+
+    与 checkout.py 同理：combo_search 的结果不落库，下单不该被「先发帖」绑架。
+    """
+    row = _post(args.hash) if args.hash else None
+    if row:
+        return row, None
+    if not args.ids:
+        return None, (
+            "posts 表中未找到该组合，且未提供 --ids。二选一：\n"
+            "  1) 先发布到搭配区：python3 write_post.py --ids <餐品ID逗号分隔> "
+            "--title ... --summary ... --calories ... --price ... --protein ...\n"
+            "  2) 直接用 --ids 下单（推荐，不产生社区数据）：\n"
+            "     python3 order.py --ids <餐品ID逗号分隔> --store-code ... --user ..."
+        )
+    ids = [x.strip() for x in args.ids.split(",") if x.strip()]
+    if not ids:
+        return None, "--ids 解析后为空"
+    h = store.combo_hash(ids)
+    synthetic = {
+        "combo_hash": h,
+        "title": args.title or "、".join(ids),
+        "combo_summary": args.summary or " + ".join(ids),
+        "product_ids": json.dumps(ids, ensure_ascii=False),
+        "total_price": args.price,
+    }
+    return synthetic, None
+
+
 def prepare(args):
-    row = _post(args.hash)
-    if not row:
-        return _fail("未找到该组合，请先发布到搭配区（write_post.py）")
+    row, err = _resolve_post(args)
+    if err:
+        return _fail(err)
+    h = row["combo_hash"]
     ids = _ids(row)
     if not ids:
-        return _fail("该组合缺少 product_ids，请用 write_post.py 重新发布一次")
+        return _fail("该组合缺少 product_ids，请改用 --ids 直接指定餐品编码")
 
     real, virt = store.split_virtual(ids)
     if not real:
@@ -78,7 +109,7 @@ def prepare(args):
         req["remark"] = store.VIRTUAL_REMARK
 
     data = {
-        "combo_hash": args.hash,
+        "combo_hash": h,
         "title": row.get("title"),
         "summary": row.get("combo_summary"),
         "real_product_ids": real,
@@ -146,11 +177,27 @@ def record(args):
     finally:
         conn.close()
 
+    # ⚠️ 下单前用户确认过金额，这里必须核对：真实扣款价与确认价对不上时
+    #    必须显式告警，否则用户会在不知情下多付钱。
+    warnings = []
+    if order_no is None:
+        warnings.append("未解析到订单号，请人工核对 MCP 返回")
+    baseline = args.confirmed_price if args.confirmed_price is not None \
+        else (row or {}).get("total_price")
+    if paid is not None and baseline is not None:
+        delta = round(paid - float(baseline), 2)
+        if abs(delta) >= 0.01:
+            warnings.append(
+                f"实付 ¥{paid} 与确认价 ¥{baseline} 相差 ¥{delta}，"
+                f"必须先向用户说明差额再让其支付")
     print(json.dumps(
         {"ok": True,
          "data": {"order_id": oid, "order_no": str(order_no) if order_no else None,
                   "pay_url": pay_url, "paid_amount": paid, "status": status,
-                  "warning": ("未解析到订单号" if order_no is None else None)}},
+                  "confirmed_price": baseline,
+                  "price_delta": (round(paid - float(baseline), 2)
+                                  if (paid is not None and baseline is not None) else None),
+                  "warning": ("；".join(warnings) if warnings else None)}},
         ensure_ascii=False, indent=2))
     return 0
 
@@ -211,7 +258,14 @@ def sync(args):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--hash", default=None)
+    ap.add_argument("--hash", default=None,
+                    help="组合哈希（与 --ids 二选一）")
+    ap.add_argument("--ids", default=None,
+                    help="餐品编码逗号分隔（与 --hash 二选一；无需先发布到搭配区）")
+    ap.add_argument("--title", default=None, help="仅 --ids 模式下用于展示")
+    ap.add_argument("--summary", default=None, help="仅 --ids 模式下用于展示")
+    ap.add_argument("--price", type=float, default=None,
+                    help="仅 --ids 模式下的本地估算价格，用于与实付对账")
     ap.add_argument("--store-code", default=None)
     ap.add_argument("--order-type", default=DEFAULT_ORDER_TYPE)
     ap.add_argument("--address-id", default=None, help="外送场景的地址 ID")
@@ -233,11 +287,17 @@ def main():
     if args.sync:
         return sync(args)
     if args.record:
-        if not args.hash:
-            return _fail("--record 需要同时提供 --hash")
+        if not args.hash and not args.ids:
+            return _fail("--record 需要同时提供 --hash 或 --ids")
+        if args.ids and not args.hash:
+            args.hash = store.combo_hash(
+                [x.strip() for x in args.ids.split(",") if x.strip()])
         return record(args)
-    if not args.hash:
-        return _fail("需要 --hash 来准备下单载荷")
+    if not args.hash and not args.ids:
+        return _fail("需要 --hash 或 --ids 来准备下单载荷")
+    if args.ids and not args.hash:
+        args.hash = store.combo_hash(
+            [x.strip() for x in args.ids.split(",") if x.strip()])
     return prepare(args)
 
 

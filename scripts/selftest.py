@@ -20,6 +20,9 @@ import json
 import tempfile
 import subprocess
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import store  # noqa: E402  回归用例要复用 combo_hash
+
 for _s in ("stdout", "stderr"):
     _st = getattr(sys, _s, None)
     if _st is not None and hasattr(_st, "reconfigure"):
@@ -166,7 +169,9 @@ def main():
             seen.append(d["picked"]["combo_hash"])
     check("连续3次推送互不重复", len(seen) == 3 and len(set(seen)) == 3, str(seen))
 
-    d_tight = run("sample_recommend.py", "--max-calories", "100", "--max-price", "5",
+    # ⚠️ 约束要低到连 calories=1/price=1 的测试桩都筛不出去，
+    #    否则分层降级根本不会触发（老版本靠"重复发布清空营养字段"这个 bug 才通过）
+    d_tight = run("sample_recommend.py", "--max-calories", "0.5", "--max-price", "0.5",
                   "--session", "st2", "--exclude", env=env)["data"]
     check("约束过紧时进入 tier>=2 且给出说明",
           d_tight["tier"] >= 2 and (d_tight["picked"] is None or d_tight["notice"]),
@@ -239,6 +244,83 @@ def main():
         r = run("query_posts.py", "--sort", sort, "--limit", "5", env=env)
         check(f"sort={sort}", r and r["ok"] and r["data"]["total"] == 3,
               f"total={r['data']['total'] if r else '?'}")
+
+    print("== 回归：2026-10-09 审计发现的 6 个 bug ==")
+    # ① query_posts.total 必须是过滤后总数，不是本页条数
+    r = run("query_posts.py", "--sort", "hot", "--limit", "1", env=env)
+    check("total=过滤后总数 / returned=本页条数",
+          r["data"]["total"] == 3 and r["data"]["returned"] == 1,
+          f"total={r['data']['total']} returned={r['data']['returned']}")
+
+    # ② write_post 重复发布：营养/价格只补空、不覆盖
+    run("write_post.py", "--ids", ids_a, "--title", "数据污染测试",
+        "--summary", "S", "--calories", "999", "--price", "88", env=env)
+    r = run("query_posts.py", "--sort", "hot", "--limit", "5", env=env)
+    rowA = [p for p in r["data"]["posts"] if p["combo_hash"] == hA][0]
+    check("重复发布不覆盖营养/价格",
+          rowA["total_calories"] == 1.0 and rowA["total_price"] == 1.0,
+          f"cal={rowA['total_calories']} price={rowA['total_price']}")
+    check("title 允许后来者修改", rowA["title"] == "数据污染测试", rowA["title"])
+    run("write_post.py", "--ids", ids_a, "--title", "测试方案A",
+        "--summary", plans[0]["summary"], env=env)   # 还原标题
+    # 补空：先发布时不带 protein，再发布时补上
+    run("write_post.py", "--ids", "999001", "--title", "缺蛋白", "--summary", "S",
+        "--calories", "200", "--price", "10", env=env)
+    run("write_post.py", "--ids", "999001", "--title", "缺蛋白", "--summary", "S",
+        "--protein", "15", env=env)
+    r = run("query_posts.py", "--min-protein", "10", "--limit", "10", env=env)
+    check("空字段可被后续发布补全",
+          any(p["combo_hash"] == store.combo_hash(["999001"])
+              for p in r["data"]["posts"]))
+
+    # ③ checkout / order 支持 --ids 直通，不再强制先发帖
+    plan0 = plans[0]
+    ids0 = ",".join(plan0["product_ids"])
+    ck2 = run("checkout.py", "--ids", ids0, "--price", str(plan0["final_price"]),
+              "--store-code", "S0001", env=env)
+    check("checkout --ids 直通（无需先 write_post）",
+          ck2["ok"] and ck2["data"]["combo_hash"] == plan0["combo_hash"])
+    check("--ids 模式冰水照样剥离",
+          ck2["data"]["stripped_virtual"] == ["冰水"])
+    od2 = run("order.py", "--ids", ids0, "--price", str(plan0["final_price"]),
+              "--store-code", "S0001", "--user", "u_ids", env=env)
+    check("order --ids 直通", od2["ok"] and od2["data"]["create_order_request"]["products"])
+
+    # ④ 官方核价：原价不得误用 totalAmount（歧义键）
+    conf_res = os.path.join(tmp, "conf_overlap.json")
+    with open(conf_res, "w", encoding="utf-8") as f:
+        json.dump({"data": {"payAmount": 7.9, "totalAmount": 7.9,
+                            "discountAmount": 5.0}}, f, ensure_ascii=False)
+    cf2 = run("checkout.py", "--ids", ids0, "--confirm", conf_res, env=env)
+    check("原价键与应付价键重叠时不误判",
+          cf2["data"]["official"]["origin_amount"] == 12.9,
+          f"origin={cf2['data']['official']['origin_amount']} (7.9+5.0 反推)")
+
+    # ⑤ 下单后实付与确认价差额必须告警
+    paid_res = os.path.join(tmp, "paid_diff.json")
+    with open(paid_res, "w", encoding="utf-8") as f:
+        json.dump({"data": {"orderNo": "MCD-DIFF", "payUrl": "https://x/d",
+                            "payAmount": 99.0, "orderStatus": "pending"}},
+                  f, ensure_ascii=False)
+    rec2 = run("order.py", "--record", paid_res, "--ids", ids0,
+               "--confirmed-price", "7.9", env=env)
+    check("实付与确认价差额触发告警",
+          rec2["data"]["warning"] and "相差" in rec2["data"]["warning"],
+          str(rec2["data"]["warning"]))
+    check("返回 price_delta 字段", rec2["data"]["price_delta"] == 91.1,
+          str(rec2["data"]["price_delta"]))
+
+    # ⑥ 折扣写法归一：85 / 8.5 / 0.85 都应视为 8.5 折
+    from combo_search import coupon_final_price
+    base = {"threshold": 0, "amount": None, "cap": None,
+            "scope_ids": set(), "universal": True}
+    for raw, want in ((85, 17.0), (8.5, 17.0), (0.85, 17.0), (999, None)):
+        c = dict(base, coupon_id="Z", discount=raw)
+        got = coupon_final_price(c, 20.0, [])
+        check(f"discount={raw} -> {want}", got == want, f"got {got}")
+    # 面额大于原价时不得报 ¥0
+    c = dict(base, coupon_id="Z2", discount=None, amount=99)
+    check("面额>原价时不报 ¥0", coupon_final_price(c, 20.0, []) is None)
 
     print()
     if FAILS:

@@ -12,7 +12,7 @@
 import sys
 import json
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 
 POWER_VOTES = 0.8
 POWER_TIME = 0.5
@@ -21,9 +21,9 @@ FLOOR = 0.05
 
 def hours_since(created_at, now=None):
     """created_at 为 SQLite datetime('now') 的 UTC 字符串 'YYYY-MM-DD HH:MM:SS'。"""
-    now = now or datetime.utcnow()
     if not created_at:
         return 0.0
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
     try:
         ts = datetime.strptime(str(created_at)[:19], "%Y-%m-%d %H:%M:%S")
     except Exception:
