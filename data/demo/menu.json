@@ -1,0 +1,37 @@
+{
+  "success": true,
+  "code": 200,
+  "message": "请求成功",
+  "data": {
+    "storeCode": "S0001",
+    "categories": [
+      {
+        "categoryName": "汉堡",
+        "products": [
+          {"productCode": "1001", "productName": "巨无霸", "price": 24.5},
+          {"productCode": "1002", "productName": "麦辣鸡腿堡", "price": 20.5},
+          {"productCode": "1003", "productName": "双层吉士汉堡", "price": 12.9},
+          {"productCode": "1004", "productName": "麦香鸡", "price": 14.5}
+        ]
+      },
+      {
+        "categoryName": "小食",
+        "products": [
+          {"productCode": "2001", "productName": "薯条(中)", "price": 11.5},
+          {"productCode": "2002", "productName": "玉米杯", "price": 9.5},
+          {"productCode": "2003", "productName": "沙拉", "price": 10.5},
+          {"productCode": "2004", "productName": "麦乐鸡5块", "price": 12.5}
+        ]
+      },
+      {
+        "categoryName": "饮品",
+        "products": [
+          {"productCode": "3001", "productName": "零度可乐(中)", "price": 9.0},
+          {"productCode": "3002", "productName": "可乐(中)", "price": 9.0},
+          {"productCode": "3003", "productName": "矿泉水", "price": 7.0},
+          {"productCode": "3004", "productName": "拿铁", "price": 17.5}
+        ]
+      }
+    ]
+  }
+}

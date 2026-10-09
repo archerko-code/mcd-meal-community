@@ -1,0 +1,12 @@
+# 统一换行符，保证仓库内文件内容与原始字节一致
+* text=auto eol=lf
+
+# 二进制文件不做换行符转换
+*.db binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary

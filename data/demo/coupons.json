@@ -1,0 +1,31 @@
+{
+  "success": true,
+  "code": 200,
+  "data": {
+    "coupons": [
+      {
+        "couponId": "C-20-5",
+        "couponName": "全场满20减5",
+        "discountAmount": 5,
+        "threshold": 20,
+        "description": "全场通用券"
+      },
+      {
+        "couponId": "C-15-3",
+        "couponName": "汉堡类满15减3",
+        "discountAmount": 3,
+        "threshold": 15,
+        "applicableProducts": ["1002", "1003", "1004"],
+        "description": "限汉堡使用"
+      },
+      {
+        "couponId": "C-30-85",
+        "couponName": "满30享8.5折",
+        "discount": 8.5,
+        "threshold": 30,
+        "maxDiscount": 6,
+        "description": "全场通用"
+      }
+    ]
+  }
+}

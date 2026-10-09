@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mcd-meal-community 可视化验证</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--panel:#161b22;--panel2:#1c2430;--line:#2b3646;
+  --text:#e6edf3;--dim:#93a1b0;--gold:#ffc300;--red:#ff5c5c;
+  --green:#3fb950;--blue:#58a6ff;--purple:#bc8cff;--orange:#f0883e;
+}
+body{background:var(--bg);color:var(--text);
+  font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  padding:24px;line-height:1.6}
+h1{font-size:22px;color:var(--gold);letter-spacing:.5px}
+h2{font-size:16px;margin-bottom:12px;color:var(--text);
+  border-left:3px solid var(--gold);padding-left:10px}
+.sub{color:var(--dim);font-size:12px;margin-top:6px}
+.wrap{max-width:1180px;margin:0 auto}
+section{background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;padding:18px;margin-top:18px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:14px}
+.kpi{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px}
+.kpi .n{font-size:24px;font-weight:700;color:var(--gold);font-variant-numeric:tabular-nums}
+.kpi .l{font-size:12px;color:var(--dim);margin-top:2px}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+  padding:14px;margin-bottom:10px}
+.card.hi{border-color:var(--gold)}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.title{font-size:15px;font-weight:600}
+.tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);
+  color:var(--dim);white-space:nowrap}
+.tag.gold{color:var(--gold);border-color:#5c4a10;background:#2a2208}
+.tag.blue{color:var(--blue);border-color:#1f3f66;background:#0d2036}
+.tag.green{color:var(--green);border-color:#1c4a26;background:#0d2413}
+.tag.red{color:var(--red);border-color:#5c1f1f;background:#2a0f0f}
+.tag.purple{color:var(--purple);border-color:#3f2a5c;background:#1d1030}
+.meta{color:var(--dim);font-size:12.5px;margin-top:6px}
+.price{color:var(--gold);font-weight:700;font-variant-numeric:tabular-nums}
+.item{display:inline-block;background:#0d1117;border:1px solid var(--line);
+  border-radius:6px;padding:3px 9px;margin:6px 6px 0 0;font-size:12.5px}
+.item .p{color:var(--dim);margin-left:6px}
+.item.virtual{border-style:dashed;border-color:#3d5c3d;color:#9fd39f}
+.comments{margin-top:8px;border-top:1px dashed var(--line);padding-top:8px}
+.comment{font-size:12.5px;color:var(--dim);margin-top:4px}
+.comment b{color:#b8c4d0;font-weight:500}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+th{text-align:left;color:var(--dim);font-weight:500;padding:7px 8px;
+  border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 8px;border-bottom:1px solid #1e2732;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:none}
+tr.ok td{background:#0f2415}
+tr.warn td{background:#2a2208}
+tr.bad td{background:#2a0f0f}
+.mono{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px;color:var(--blue)}
+.empty{color:var(--dim);font-size:13px;padding:10px 0}
+.tabs{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.tab{cursor:pointer;font-size:12.5px;padding:5px 12px;border-radius:6px;
+  border:1px solid var(--line);color:var(--dim);background:transparent}
+.tab.on{color:#0d1117;background:var(--gold);border-color:var(--gold);font-weight:600}
+pre{background:#0d1117;border:1px solid var(--line);border-radius:6px;padding:10px;
+  font-size:11.5px;overflow:auto;max-height:280px;color:#a8b6c4}
+.bar{height:6px;border-radius:3px;background:#0d1117;overflow:hidden;margin-top:6px}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--orange))}
+.note{font-size:12.5px;color:var(--orange);margin-top:8px}
+.legend{font-size:12px;color:var(--dim);margin-top:8px}
+.disc{font-size:12px;color:var(--dim);border-left:3px solid var(--gold);
+  background:rgba(255,199,44,.07);padding:8px 12px;border-radius:0 6px 6px 0;margin:10px 0 4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>mcd-meal-community · 可视化验证</h1>
+  <div class="disc">本页为参赛作品的功能自检看板。页面内的菜单、营养与价格数据来自
+    仓库内构造的<b>演示数据</b>，仅用于离线复现整条链路，<b>不代表麦当劳真实菜单与价格</b>；
+    真实数值以麦当劳官方渠道的实时结果为准。本项目非麦当劳官方产品。</div>
+  <div class="sub" id="subtitle"></div>
+  <div class="kpis" id="kpis"></div>
+  <section><h2>① 系统推荐区 · 组合搜索结果</h2><div id="plans"></div></section>
+  <section><h2>② 今日推荐 · 采样序列（验证「换一个」不重复）</h2><div id="timeline"></div></section>
+  <section><h2>③ 用户搭配区 · 按热度排序</h2><div id="posts"></div></section>
+  <section><h2>④ 哈希打通验证 · 系统推荐区 ↔ 用户搭配区</h2><div id="bridge"></div></section>
+  <section><h2>⑤ 下单闭环 · 核价 → 下单 → 同步</h2><div id="orderflow"></div></section>
+  <section><h2>⑥ 数据表原始记录</h2>
+    <div class="tabs" id="tabs"></div>
+    <pre id="raw"></pre>
+  </section>
+</div>
+<script>
+const D = {"generated_at": "2026-10-09 19:27:08", "db_label": "演示库 verify_demo.db", "constraints": {"calories": 500.0, "price": 30.0, "protein": 25.0, "min_items": 1, "ice_water": true}, "stats": {"menu_items": 12, "candidates": 11, "combos": 10, "coupons": 3, "unmatched_nutrition": []}, "relaxed": false, "notice": "", "plans": [{"rank": 1, "label": "最低价方案", "items": [{"id": "1003", "name": "双层吉士汉堡", "category": "main", "kcal": 440.0, "protein": 25.0, "price": 12.9, "virtual": false}, {"id": "__ice_water__", "name": "冰水", "category": "drink", "kcal": 0.0, "protein": 0.0, "price": 0.0, "virtual": true}], "product_ids": ["1003", "__ice_water__"], "combo_hash": "66e38c9a15541dcb", "summary": "双层吉士汉堡 + 冰水", "nutrition": {"calories": 440.0, "protein": 25.0}, "original_price": 12.9, "final_price": 12.9, "price_is_estimate": true, "coupon": null, "kcal_per_yuan": 34.11, "protein_ok": true}, {"rank": 2, "label": "热量最低方案", "items": [{"id": "1004", "name": "麦香鸡", "category": "main", "kcal": 380.0, "protein": 20.0, "price": 14.5, "virtual": false}, {"id": "__ice_water__", "name": "冰水", "category": "drink", "kcal": 0.0, "protein": 0.0, "price": 0.0, "virtual": true}], "product_ids": ["1004", "__ice_water__"], "combo_hash": "5a4febffeb615f3b", "summary": "麦香鸡 + 冰水", "nutrition": {"calories": 380.0, "protein": 20.0}, "original_price": 14.5, "final_price": 14.5, "price_is_estimate": true, "coupon": null, "kcal_per_yuan": 26.21, "protein_ok": false}, {"rank": 3, "label": "蛋白质达标", "items": [{"id": "1002", "name": "麦辣鸡腿堡", "category": "main", "kcal": 450.0, "protein": 25.0, "price": 20.5, "virtual": false}, {"id": "__ice_water__", "name": "冰水", "category": "drink", "kcal": 0.0, "protein": 0.0, "price": 0.0, "virtual": true}], "product_ids": ["1002", "__ice_water__"], "combo_hash": "b5a6b0a68e43d2be", "summary": "麦辣鸡腿堡 + 冰水", "nutrition": {"calories": 450.0, "protein": 25.0}, "original_price": 20.5, "final_price": 15.5, "price_is_estimate": true, "coupon": {"coupon_id": "C-20-5", "name": "全场满20减5"}, "kcal_per_yuan": 29.03, "protein_ok": true}], "timeline": [{"round": 1, "tier": 1, "explore": false, "notice": "", "candidates": 4, "title": "减脂午餐首选", "summary": "麦香鸡 + 矿泉水", "calories": 380.0, "price": 16.5, "hash": "de9d3a467a6538da", "hot_score": 1.698631}, {"round": 2, "tier": 1, "explore": false, "notice": "", "candidates": 3, "title": "高蛋白且便宜", "summary": "麦辣鸡腿堡 + 冰水", "calories": 450.0, "price": 15.5, "hash": "b5a6b0a68e43d2be", "hot_score": 2.138208}, {"round": 3, "tier": 1, "explore": false, "notice": "", "candidates": 2, "title": "热量最低的轻食", "summary": "麦香鸡 + 冰水", "calories": 380.0, "price": 14.5, "hash": "5a4febffeb615f3b", "hot_score": 2.555465}, {"round": 4, "tier": 1, "explore": false, "notice": "", "candidates": 1, "title": "低热量且最低价", "summary": "双层吉士汉堡 + 冰水", "calories": 440.0, "price": 12.9, "hash": "66e38c9a15541dcb", "hot_score": 2.55483}, {"round": 5, "tier": 2, "explore": false, "notice": "严格约束下无新组合，已放宽热量上限至 720kcal（120%）", "candidates": 1, "title": "练后补蛋白", "summary": "双层吉士汉堡 + 麦乐鸡5块 + 冰水", "calories": 670.0, "price": 20.4, "hash": "325dbb12466a7b22", "hot_score": 1.698208}, {"round": 6, "tier": 3, "explore": false, "notice": "社区组合本轮已全部推完，可回复「重置推荐」重新开始", "candidates": 0, "title": null, "summary": null, "calories": null, "price": null, "hash": null, "hot_score": null}], "order_trace": {"summary": "双层吉士汉堡 + 冰水", "checkout": {"real_product_ids": ["1003"], "stripped_virtual": ["冰水"], "remark": "请另附一杯免费冰水，谢谢", "local_estimate": 12.9, "calculate_price_request": {"storeCode": "S0001", "orderType": "takeaway", "products": [{"productCode": "1003", "quantity": 1}]}}, "confirm": {"combo_hash": "66e38c9a15541dcb", "summary": "双层吉士汉堡 + 冰水", "local_estimate": 12.9, "official": {"pay_amount": 7.9, "origin_amount": 12.9, "discount": 5.0}, "diff": -5.0, "verdict": "官方更低", "price_is_estimate": false, "advice": "以官方核价为准，展示时用 official.pay_amount 覆盖本地估算"}, "order_request": {"storeCode": "S0001", "orderType": "takeaway", "products": [{"productCode": "1003", "quantity": 1}], "remark": "请另附一杯免费冰水，谢谢"}, "record": {"order_id": 1, "order_no": "MCD-DEMO-0001", "pay_url": "https://mcd.cn/pay/DEMO0001", "paid_amount": 7.9, "status": "pending_payment", "warning": null}, "sync": {"order_no": "MCD-DEMO-0001", "status": "paid", "paid_amount": 7.9, "rows_updated": 1}, "orders": [{"id": 1, "combo_hash": "66e38c9a15541dcb", "title": "低热量且最低价", "user_id": "demo_user", "store_code": "S0001", "order_type": "takeaway", "product_ids": "[\"1003\", \"__ice_water__\"]", "stripped_virtual": "[\"冰水\"]", "remark": "请另附一杯免费冰水，谢谢", "coupon_id": null, "local_estimate": 12.9, "confirmed_price": null, "paid_amount": 7.9, "order_no": "MCD-DEMO-0001", "pay_url": "https://mcd.cn/pay/DEMO0001", "status": "paid", "raw_response": "{\"orderStatus\": \"paid\", \"payAmount\": 7.9}", "created_at": "2026-10-09 11:27:05", "updated_at": "2026-10-09 11:27:06"}]}, "posts": [{"id": 1, "combo_hash": "66e38c9a15541dcb", "title": "低热量且最低价", "combo_summary": "双层吉士汉堡 + 冰水", "product_ids": "[\"1003\", \"__ice_water__\"]", "total_calories": 440.0, "total_price": 12.9, "total_protein": 25.0, "source": "user", "created_at": "2026-10-09 11:26:17", "up": 5, "down": 1, "net_votes": 4, "comment_count": 2, "hours": 0.014, "hot_score": 2.553561, "top_comments": [{"user_id": "u_zhao", "content": "别点可乐，换零度直接省 210 大卡", "created_at": "2026-10-09 11:26:47"}, {"user_id": "u_lin", "content": "这个组合蛋白质够，减脂期我就吃这个", "created_at": "2026-10-09 11:26:46"}]}, {"id": 2, "combo_hash": "5a4febffeb615f3b", "title": "热量最低的轻食", "combo_summary": "麦香鸡 + 冰水", "product_ids": "[\"1004\", \"__ice_water__\"]", "total_calories": 380.0, "total_price": 14.5, "total_protein": 20.0, "source": "user", "created_at": "2026-10-09 11:26:18", "up": 5, "down": 1, "net_votes": 4, "comment_count": 1, "hours": 0.014, "hot_score": 2.553561, "top_comments": [{"user_id": "u_zhao", "content": "这个组合蛋白质够，减脂期我就吃这个", "created_at": "2026-10-09 11:26:48"}]}, {"id": 3, "combo_hash": "b5a6b0a68e43d2be", "title": "高蛋白且便宜", "combo_summary": "麦辣鸡腿堡 + 冰水", "product_ids": "[\"1002\", \"__ice_water__\"]", "total_calories": 450.0, "total_price": 15.5, "total_protein": 25.0, "source": "user", "created_at": "2026-10-09 11:26:19", "up": 4, "down": 1, "net_votes": 3, "comment_count": 2, "hours": 0.014, "hot_score": 2.136084, "top_comments": [{"user_id": "u_sun", "content": "冰水是免费的别忘了拿，饱腹感比想象中强", "created_at": "2026-10-09 11:26:50"}, {"user_id": "u_qian", "content": "两个人分着吃刚好，一个人有点撑", "created_at": "2026-10-09 11:26:49"}]}, {"id": 4, "combo_hash": "de9d3a467a6538da", "title": "减脂午餐首选", "combo_summary": "麦香鸡 + 矿泉水", "product_ids": "[\"1004\", \"3003\"]", "total_calories": 380.0, "total_price": 16.5, "total_protein": 20.0, "source": "system", "created_at": "2026-10-09 11:26:20", "up": 3, "down": 1, "net_votes": 2, "comment_count": 2, "hours": 0.013, "hot_score": 1.697365, "top_comments": [{"user_id": "u_zhou", "content": "沙拉的酱别全倒，热量差挺多", "created_at": "2026-10-09 11:26:52"}, {"user_id": "u_sun", "content": "别点可乐，换零度直接省 210 大卡", "created_at": "2026-10-09 11:26:51"}]}, {"id": 5, "combo_hash": "325dbb12466a7b22", "title": "练后补蛋白", "combo_summary": "双层吉士汉堡 + 麦乐鸡5块 + 冰水", "product_ids": "[\"1003\", \"2004\", \"__ice_water__\"]", "total_calories": 670.0, "total_price": 20.4, "total_protein": 38.0, "source": "user", "created_at": "2026-10-09 11:26:21", "up": 4, "down": 2, "net_votes": 2, "comment_count": 3, "hours": 0.013, "hot_score": 1.697365, "top_comments": [{"user_id": "u_zheng", "content": "冰水是免费的别忘了拿，饱腹感比想象中强", "created_at": "2026-10-09 11:26:54"}, {"user_id": "u_wu", "content": "热量最低但蛋白偏少，我会再加个麦乐鸡", "created_at": "2026-10-09 11:26:53"}, {"user_id": "u_zhou", "content": "沙拉的酱别全倒，热量差挺多", "created_at": "2026-10-09 11:26:52"}]}], "raw": {"posts": [{"id": 1, "combo_hash": "66e38c9a15541dcb", "title": "低热量且最低价", "combo_summary": "双层吉士汉堡 + 冰水", "product_ids": "[\"1003\", \"__ice_water__\"]", "total_calories": 440.0, "total_price": 12.9, "total_protein": 25.0, "source": "user", "created_at": "2026-10-09 11:26:17"}, {"id": 2, "combo_hash": "5a4febffeb615f3b", "title": "热量最低的轻食", "combo_summary": "麦香鸡 + 冰水", "product_ids": "[\"1004\", \"__ice_water__\"]", "total_calories": 380.0, "total_price": 14.5, "total_protein": 20.0, "source": "user", "created_at": "2026-10-09 11:26:18"}, {"id": 3, "combo_hash": "b5a6b0a68e43d2be", "title": "高蛋白且便宜", "combo_summary": "麦辣鸡腿堡 + 冰水", "product_ids": "[\"1002\", \"__ice_water__\"]", "total_calories": 450.0, "total_price": 15.5, "total_protein": 25.0, "source": "user", "created_at": "2026-10-09 11:26:19"}, {"id": 4, "combo_hash": "de9d3a467a6538da", "title": "减脂午餐首选", "combo_summary": "麦香鸡 + 矿泉水", "product_ids": "[\"1004\", \"3003\"]", "total_calories": 380.0, "total_price": 16.5, "total_protein": 20.0, "source": "system", "created_at": "2026-10-09 11:26:20"}, {"id": 5, "combo_hash": "325dbb12466a7b22", "title": "练后补蛋白", "combo_summary": "双层吉士汉堡 + 麦乐鸡5块 + 冰水", "product_ids": "[\"1003\", \"2004\", \"__ice_water__\"]", "total_calories": 670.0, "total_price": 20.4, "total_protein": 38.0, "source": "user", "created_at": "2026-10-09 11:26:21"}], "votes": [{"id": 1, "combo_hash": "66e38c9a15541dcb", "user_id": "u_zhou", "rating": 1, "created_at": "2026-10-09 11:26:22"}, {"id": 2, "combo_hash": "66e38c9a15541dcb", "user_id": "u_wu", "rating": 1, "created_at": "2026-10-09 11:26:23"}, {"id": 3, "combo_hash": "66e38c9a15541dcb", "user_id": "u_lin", "rating": 1, "created_at": "2026-10-09 11:26:24"}, {"id": 4, "combo_hash": "66e38c9a15541dcb", "user_id": "u_qian", "rating": 1, "created_at": "2026-10-09 11:26:25"}, {"id": 5, "combo_hash": "66e38c9a15541dcb", "user_id": "u_zhao", "rating": 1, "created_at": "2026-10-09 11:26:25"}, {"id": 6, "combo_hash": "66e38c9a15541dcb", "user_id": "u_sun", "rating": -1, "created_at": "2026-10-09 11:26:26"}, {"id": 7, "combo_hash": "5a4febffeb615f3b", "user_id": "u_zheng", "rating": 1, "created_at": "2026-10-09 11:26:27"}, {"id": 8, "combo_hash": "5a4febffeb615f3b", "user_id": "u_wu", "rating": 1, "created_at": "2026-10-09 11:26:28"}, {"id": 9, "combo_hash": "5a4febffeb615f3b", "user_id": "u_zhao", "rating": 1, "created_at": "2026-10-09 11:26:29"}, {"id": 10, "combo_hash": "5a4febffeb615f3b", "user_id": "u_zhou", "rating": 1, "created_at": "2026-10-09 11:26:30"}, {"id": 11, "combo_hash": "5a4febffeb615f3b", "user_id": "u_qian", "rating": 1, "created_at": "2026-10-09 11:26:31"}, {"id": 12, "combo_hash": "5a4febffeb615f3b", "user_id": "u_lin", "rating": -1, "created_at": "2026-10-09 11:26:32"}, {"id": 13, "combo_hash": "b5a6b0a68e43d2be", "user_id": "u_qian", "rating": 1, "created_at": "2026-10-09 11:26:33"}, {"id": 14, "combo_hash": "b5a6b0a68e43d2be", "user_id": "u_zhou", "rating": 1, "created_at": "2026-10-09 11:26:34"}, {"id": 15, "combo_hash": "b5a6b0a68e43d2be", "user_id": "u_zhao", "rating": 1, "created_at": "2026-10-09 11:26:35"}, {"id": 16, "combo_hash": "b5a6b0a68e43d2be", "user_id": "u_wang", "rating": 1, "created_at": "2026-10-09 11:26:35"}, {"id": 17, "combo_hash": "b5a6b0a68e43d2be", "user_id": "u_sun", "rating": -1, "created_at": "2026-10-09 11:26:36"}, {"id": 18, "combo_hash": "de9d3a467a6538da", "user_id": "u_lin", "rating": 1, "created_at": "2026-10-09 11:26:37"}, {"id": 19, "combo_hash": "de9d3a467a6538da", "user_id": "u_zhao", "rating": 1, "created_at": "2026-10-09 11:26:38"}, {"id": 20, "combo_hash": "de9d3a467a6538da", "user_id": "u_wang", "rating": 1, "created_at": "2026-10-09 11:26:39"}, {"id": 21, "combo_hash": "de9d3a467a6538da", "user_id": "u_sun", "rating": -1, "created_at": "2026-10-09 11:26:40"}, {"id": 22, "combo_hash": "325dbb12466a7b22", "user_id": "u_zhou", "rating": 1, "created_at": "2026-10-09 11:26:41"}, {"id": 23, "combo_hash": "325dbb12466a7b22", "user_id": "u_qian", "rating": 1, "created_at": "2026-10-09 11:26:42"}, {"id": 24, "combo_hash": "325dbb12466a7b22", "user_id": "u_wu", "rating": 1, "created_at": "2026-10-09 11:26:43"}, {"id": 25, "combo_hash": "325dbb12466a7b22", "user_id": "u_zhao", "rating": 1, "created_at": "2026-10-09 11:26:44"}, {"id": 26, "combo_hash": "325dbb12466a7b22", "user_id": "u_sun", "rating": -1, "created_at": "2026-10-09 11:26:44"}, {"id": 27, "combo_hash": "325dbb12466a7b22", "user_id": "u_zheng", "rating": -1, "created_at": "2026-10-09 11:26:45"}], "comments": [{"id": 1, "combo_hash": "66e38c9a15541dcb", "user_id": "u_lin", "content": "这个组合蛋白质够，减脂期我就吃这个", "created_at": "2026-10-09 11:26:46"}, {"id": 2, "combo_hash": "66e38c9a15541dcb", "user_id": "u_zhao", "content": "别点可乐，换零度直接省 210 大卡", "created_at": "2026-10-09 11:26:47"}, {"id": 3, "combo_hash": "5a4febffeb615f3b", "user_id": "u_zhao", "content": "这个组合蛋白质够，减脂期我就吃这个", "created_at": "2026-10-09 11:26:48"}, {"id": 4, "combo_hash": "b5a6b0a68e43d2be", "user_id": "u_qian", "content": "两个人分着吃刚好，一个人有点撑", "created_at": "2026-10-09 11:26:49"}, {"id": 5, "combo_hash": "b5a6b0a68e43d2be", "user_id": "u_sun", "content": "冰水是免费的别忘了拿，饱腹感比想象中强", "created_at": "2026-10-09 11:26:50"}, {"id": 6, "combo_hash": "de9d3a467a6538da", "user_id": "u_sun", "content": "别点可乐，换零度直接省 210 大卡", "created_at": "2026-10-09 11:26:51"}, {"id": 7, "combo_hash": "de9d3a467a6538da", "user_id": "u_zhou", "content": "沙拉的酱别全倒，热量差挺多", "created_at": "2026-10-09 11:26:52"}, {"id": 8, "combo_hash": "325dbb12466a7b22", "user_id": "u_zhou", "content": "沙拉的酱别全倒，热量差挺多", "created_at": "2026-10-09 11:26:52"}, {"id": 9, "combo_hash": "325dbb12466a7b22", "user_id": "u_wu", "content": "热量最低但蛋白偏少，我会再加个麦乐鸡", "created_at": "2026-10-09 11:26:53"}, {"id": 10, "combo_hash": "325dbb12466a7b22", "user_id": "u_zheng", "content": "冰水是免费的别忘了拿，饱腹感比想象中强", "created_at": "2026-10-09 11:26:54"}], "orders": [{"id": 1, "combo_hash": "66e38c9a15541dcb", "title": "低热量且最低价", "user_id": "demo_user", "store_code": "S0001", "order_type": "takeaway", "product_ids": "[\"1003\", \"__ice_water__\"]", "stripped_virtual": "[\"冰水\"]", "remark": "请另附一杯免费冰水，谢谢", "coupon_id": null, "local_estimate": 12.9, "confirmed_price": null, "paid_amount": 7.9, "order_no": "MCD-DEMO-0001", "pay_url": "https://mcd.cn/pay/DEMO0001", "status": "paid", "raw_response": "{\"orderStatus\": \"paid\", \"payAmount\": 7.9}", "created_at": "2026-10-09 11:27:05", "updated_at": "2026-10-09 11:27:06"}]}, "bridge": [{"summary": "双层吉士汉堡 + 冰水", "hash": "66e38c9a15541dcb", "in_community": true}, {"summary": "麦香鸡 + 冰水", "hash": "5a4febffeb615f3b", "in_community": true}, {"summary": "麦辣鸡腿堡 + 冰水", "hash": "b5a6b0a68e43d2be", "in_community": true}]};
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+$('subtitle').textContent =
+  `生成于 ${D.generated_at} ｜ 数据源：${D.db_label} ｜ 约束：热量≤${D.constraints.calories}kcal 预算≤¥${D.constraints.price}`
+  + (D.constraints.protein ? ` 蛋白质≥${D.constraints.protein}g` : '')
+  + ` ｜ 免费冰水：${D.constraints.ice_water ? '已启用' : '已关闭'}`;
+
+$('kpis').innerHTML = [
+  ['搭配区方案', D.raw.posts.length],
+  ['投票记录', D.raw.votes.length],
+  ['评论记录', D.raw.comments.length],
+  ['候选组合数', D.stats.combos],
+  ['命中优惠券', D.stats.coupons],
+  ['采样轮次', D.timeline.length],
+  ['本地订单', D.raw.orders.length],
+].map(([l, n]) => `<div class="kpi"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+
+// ① 系统推荐区
+$('plans').innerHTML = D.plans.map(p => {
+  const coupon = p.coupon ? `<span class="tag gold">券 · ${esc(p.coupon.name)}</span>` : `<span class="tag">未命中券</span>`;
+  const protein = p.protein_ok ? `<span class="tag green">蛋白达标</span>` : `<span class="tag red">蛋白未达标</span>`;
+  const items = p.items.map(i =>
+    `<span class="item${i.virtual ? ' virtual' : ''}">${esc(i.name)}<span class="p">${i.price > 0 ? '¥' + i.price : '免费'} · ${i.kcal}kcal</span></span>`).join('');
+  return `<div class="card ${p.rank === 1 ? 'hi' : ''}">
+    <div class="row">
+      <div class="title">方案${p.rank} · ${esc(p.summary)}</div>
+      <div>${coupon}${protein}<span class="tag blue">${esc(p.label)}</span></div>
+    </div>
+    <div class="meta">热量 <b>${p.nutrition.calories}kcal</b> ｜ 蛋白质 <b>${p.nutrition.protein}g</b>
+      ｜ 原价 ¥${p.original_price} → <span class="price">${p.coupon ? '券后' : '实付'} ¥${p.final_price}</span>
+      ｜ ${p.kcal_per_yuan} kcal/元</div>
+    <div>${items}</div>
+    <div class="meta">combo_hash <span class="mono">${p.combo_hash}</span></div>
+  </div>`;
+}).join('') + (D.relaxed ? `<div class="note">⚠️ ${esc(D.notice)}</div>` : '');
+
+// ② 采样序列
+const pickedHashes = D.timeline.filter(t => t.hash).map(t => t.hash);
+const uniqN = new Set(pickedHashes).size;
+const dupOk = pickedHashes.length === uniqN;
+$('timeline').innerHTML =
+  `<div class="meta">共推送 <b>${pickedHashes.length}</b> 条，去重后 <b>${uniqN}</b> 条 —— `
+  + (dupOk ? '<span class="tag green">✅ 无重复，「换一个」去重生效</span>'
+           : '<span class="tag red">❌ 出现重复推送</span>')
+  + `</div><table><thead><tr>
+  <th>轮次</th><th>层级</th><th>探索位</th><th>候选池</th><th>推中组合</th><th>hot_score</th><th>hash</th><th>说明</th>
+</tr></thead><tbody>` + D.timeline.map(t => {
+  const cls = t.tier === 1 ? 'ok' : (t.tier === 2 ? 'warn' : 'bad');
+  const tier = ['', '第一层·约束内', '第二层·放宽120%', '第三层·忽略约束'][t.tier];
+  return `<tr class="${cls}">
+    <td>${t.round}</td><td>${tier}</td>
+    <td>${t.explore ? '<span class="tag purple">探索</span>' : '—'}</td>
+    <td>${t.candidates}</td>
+    <td>${t.title ? esc(t.title) + ' · ' + esc(t.summary) + ' <span class="tag">' + t.calories + 'kcal / ¥' + t.price + '</span>' : '<span class="tag red">无可用组合</span>'}</td>
+    <td>${t.hot_score ?? '—'}</td>
+    <td class="mono">${t.hash ? t.hash : '—'}</td>
+    <td>${esc(t.notice || '')}</td></tr>`;
+}).join('') + `</tbody></table>`;
+
+// ③ 用户搭配区
+$('posts').innerHTML = D.posts.length ? D.posts.map((p, i) => {
+  const cm = (p.top_comments || []).map(c =>
+    `<div class="comment">「${esc(c.content)}」 <b>— ${esc(c.user_id)}</b></div>`).join('');
+  const maxHot = Math.max(...D.posts.map(x => x.hot_score || 0), 1);
+  const w = Math.round((p.hot_score || 0) / maxHot * 100);
+  return `<div class="card">
+    <div class="row">
+      <div class="title">${i + 1}. ${esc(p.title)}
+        <span class="tag ${p.source === 'system' ? 'blue' : 'green'}">${p.source === 'system' ? '系统发布' : '用户发布'}</span></div>
+      <div><span class="tag gold">👍 ${p.up}</span><span class="tag red">👎 ${p.down}</span>
+        <span class="tag">💬 ${p.comment_count}</span></div>
+    </div>
+    <div class="meta">${esc(p.combo_summary)}</div>
+    <div class="meta">热量 <b>${p.total_calories}kcal</b> ｜ 蛋白质 <b>${p.total_protein}g</b>
+      ｜ 券后 <span class="price">¥${p.total_price}</span> ｜ hot_score <b>${p.hot_score}</b></div>
+    <div class="meta" style="margin-top:9px;font-size:11.5px">热度强度</div>
+    <div class="bar"><i style="width:${w}%"></i></div>
+    ${cm ? `<div class="comments">${cm}</div>` : ''}
+    <div class="meta">combo_hash <span class="mono">${p.combo_hash}</span></div>
+  </div>`;
+}).join('') : '<div class="empty">搭配区暂无数据。</div>';
+
+// ④ 哈希打通
+const okAll = D.bridge.every(b => b.in_community);
+$('bridge').innerHTML =
+  `<div class="meta">系统推荐区算出的 combo_hash，与搭配区 posts 表里的哈希逐条比对：</div>
+   <table><thead><tr><th>方案</th><th>combo_hash</th><th>是否已在搭配区</th></tr></thead><tbody>`
+  + D.bridge.map(b => `<tr class="${b.in_community ? 'ok' : 'bad'}">
+      <td>${esc(b.summary)}</td><td class="mono">${b.hash}</td>
+      <td>${b.in_community ? '✅ 一致，评论数据可打通' : '❌ 未找到'}</td></tr>`).join('')
+  + `</tbody></table>
+     <div class="note">${okAll ? '✅ 全部一致 —— 同一组餐品无论从哪个入口进入，hash 相同，评论互通。'
+                              : '⚠️ 存在不一致项，需检查 combo_hash 生成规则。'}</div>`;
+
+// ⑤ 下单闭环
+const of = D.order_trace;
+$('orderflow').innerHTML = !of
+  ? '<div class="empty">本页未运行下单闭环（--live 模式跳过演示下单）。</div>'
+  : `<div class="meta">以方案「${esc(of.summary)}」为例走完整条链路：</div>
+  <div class="card">
+    <div class="title">第 1 步 · 精确核价</div>
+    <div class="meta">本地估算 ¥${of.checkout.local_estimate} → 官方核价
+      <span class="price">¥${of.confirm.official.pay_amount}</span>
+      ｜ 差额 ${of.confirm.diff} ｜
+      <span class="tag ${of.confirm.verdict === '一致' ? 'green' : 'gold'}">${esc(of.confirm.verdict)}</span></div>
+    <div class="meta">核价请求只含真实餐品：<span class="mono">${of.checkout.real_product_ids.join(', ')}</span></div>
+    <div class="meta">剥离的虚拟品：<span class="tag red">${of.checkout.stripped_virtual.join('、') || '无'}</span>
+      改走订单备注「${esc(of.checkout.remark || '')}」</div>
+  </div>
+  <div class="card">
+    <div class="title">第 2 步 · 下单</div>
+    <div class="meta">create-order 请求载荷：</div>
+    <pre>${esc(JSON.stringify(of.order_request, null, 2))}</pre>
+    <div class="meta">订单号 <span class="mono">${esc(of.record.order_no)}</span>
+      ｜ 实付 <span class="price">¥${of.record.paid_amount}</span>
+      ｜ 状态 ${esc(of.record.status)}</div>
+    <div class="meta">支付链接 <span class="mono">${esc(of.record.pay_url)}</span></div>
+  </div>
+  <div class="card">
+    <div class="title">第 3 步 · 状态同步</div>
+    <div class="meta">query-order 返回后回填本地：状态变为
+      <span class="tag green">${esc(of.sync.status)}</span>，影响 ${of.sync.rows_updated} 行</div>
+  </div>
+  <div class="meta" style="margin-top:10px">本地 orders 表：</div>
+  <pre>${esc(JSON.stringify(of.orders, null, 2))}</pre>`;
+
+// ⑥ 原始表
+let cur = 'posts';
+function renderRaw() {
+  const rows = D.raw[cur];
+  $('raw').textContent = rows.length
+    ? JSON.stringify(rows, null, 2)
+    : '（空表）';
+}
+$('tabs').innerHTML = ['posts', 'votes', 'comments', 'orders'].map(t =>
+  `<div class="tab${t === cur ? ' on' : ''}" data-t="${t}">${t}（${D.raw[t].length}）</div>`).join('');
+$('tabs').onclick = e => {
+  const t = e.target.dataset.t;
+  if (!t) return;
+  cur = t;
+  [...$('tabs').children].forEach(c => c.classList.toggle('on', c.dataset.t === t));
+  renderRaw();
+};
+renderRaw();
+</script>
+</body>
+</html>
