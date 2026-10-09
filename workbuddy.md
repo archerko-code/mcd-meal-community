@@ -57,7 +57,7 @@ WorkBuddy 的价值在于：**把「探索—实现—验证」的循环收敛�
 | 1 | 删掉 `--eff-mode` 开关，固定输出「最低价方案 / 热量最低方案 / 蛋白质达标」三项 |
 | 2 | `--min-items` 默认回落到 1；新增虚拟商品「冰水」（0 元 0 卡，固定 ID `__ice_water__`）；**无饮品的组合自动补一杯**，避免「单品」与「单品+冰水」重复枚举；组合至少含一件真实餐品 |
 | 3 | `--coupons` 改为多文件合并（按 `coupon_id` 去重）；明确三源券池：`query-store-coupons` + `available-coupons` + `query-my-coupons` |
-| 4 | 新增 `render_debug.py`，一条命令生成单文件 HTML 看板 `data/verify.html`，五块区域验证整条链路 |
+| 4 | 新增 `render_debug.py`，一条命令生成单文件 HTML 看板 `data/verify.html`，多块区域验证整条链路（第 3 轮补入下单闭环后定型为六块） |
 
 **这一轮修出的真实 Bug（🔴 严重）**：
 
@@ -86,7 +86,7 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 - `posts` 表新增 `product_ids` 列（`ALTER TABLE` 迁移，不重建库）——原表只有不可逆的 `combo_hash`，无法反查商品编码，下单链路走不通。
 - 新增第 4 张表 `orders`。
 - 兑现上一轮承诺：冰水作为虚拟商品，下单前由 `store.split_virtual()` 自动剥离出商品列表，改写进订单备注「请另附一杯免费冰水，谢谢」。
-- 自测从 22 项扩到 **59 项**（2026-10-09 两轮审计共补 22 项回归），新增下单全链路与候选剪枝断言。
+- 自测从 22 项扩到 **37 项**，新增下单全链路断言。
 
 ### 第 4 轮 · 核对官方规则
 
@@ -128,7 +128,7 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 | 步骤 | 做了什么 |
 |---|---|
 | ① 核实规则细节 | 拉取官方 `RANKING.md`，发现**排行榜「项目名称」列显示的是仓库名而非中文名**——命名要分「仓库名」与「中文名」两层考虑 |
-| ② 竞品扫描 | 逐一比对榜单 12 个项目的仓库名，确认「营养」已有 3 家（`mcd-nutrition-optimizer` / `mcd-nutrition-planner` / `mcd-m-balance`），而 `community` 只有本project一个 |
+| ② 竞品扫描 | 逐一比对榜单 12 个项目的仓库名，确认「营养」已有 3 家（`mcd-nutrition-optimizer` / `mcd-nutrition-planner` / `mcd-m-balance`），而 `community` 只有本项目一个 |
 | ③ 定位纠偏 | 指出原名「麦麦健身餐 · 麦当劳营养膳食搭配专家」的两个问题：把控糖/控钠人群切在门外；「营养膳食搭配」与三家撞车 |
 | ④ 找真差异 | 逐项比对能力矩阵，确认**社区闭环**（发布/顶踩/评论/热衰减热榜/`combo_hash` 跨区共享评论）是 12 个竞品无一具备的能力 |
 | ⑤ 给方案 | 提出 4 个候选名并逐项列出优劣，请用户拍板 |
@@ -171,7 +171,7 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 因为那条测试以前**靠的是「重复发布会清空营养字段」这个 bug** 才让紧约束筛不出结果。
 测试在为一个 bug 作证。已把测试约束降到 `--max-calories 0.5` 让它真正触发降级。
 
-**验证**：`selftest.py` 从 37 项扩到 **59 项**，含 11 个 bug 的针对性回归，退出码 0。
+**验证**：`selftest.py` 从 37 项扩到 **52 项**（本轮补 15 条回归断言），退出码 0。
 
 ---
 
@@ -196,8 +196,34 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 - 只测 `--max-price` 的降级用例一开始设计成「放宽后仍无解」，测的其实是 tier3，
   改成「放宽后命中且不越界」才真正锁住 tier2 的存在。
 
-**验证**：`selftest.py` 59 项断言全绿（新增 7 项针对性回归），退出码 0；看板 `docs/index.html` 已按新逻辑重生成
+**验证**：`selftest.py` 从 52 项扩到 **59 项**（本轮补 7 条回归断言），退出码 0。
+第 7、8 两轮审计合计补入 **22 条**回归断言，自测总量 37 → 59。
+看板 `docs/index.html` 已按新逻辑重生成
 （tier2 说明文案可见变化：`已放宽热量上限至 720kcal（120%）、价格上限至 ¥36（120%）`）。
+
+### 第 9 轮 · 文档口径一致性核对
+
+脚本改完之后，回头把三份说明文件（本文件 / `SKILL.md` / 报名提交指南）逐项对了一遍，
+发现一批**代码没错、文档在说谎**的问题（含 2 处会直接影响提交结果的），逐项修正如下：
+
+| 文件 | 问题 | 修正 |
+|---|---|---|
+| `SKILL.md` §12 | 写「页面分五块」，表格只列到 ⑤，**漏了「下单闭环」整块**，还把 ⑥ 错标成 ⑤ | 改为六块，补入 ⑤ 下单闭环、⑥ 四表原始记录 |
+| 本文件 | 第 7 轮写「从 37 扩到 **59** 项，含 **11** 个 bug」——与本轮自己写的「实锤 8 个问题 / 补 15 条断言」**自相矛盾** | 改为「37 → 52 项，补 15 条」，52 → 59 归到第 8 轮 |
+| 本文件 | 第 3 轮却写着「候选剪枝断言」（第 8 轮的产物），时序错乱 | 第 3 轮回到 22 → 37 项；22 条回归总量归到第 8 轮 |
+| 本文件 / `README.md` | 声称 import `urllib`——**全仓库根本没有 urllib** | 改为真实标准库清单（13 个模块，已逐个 `grep` 核对） |
+| 本文件 | 「14 个脚本 2570 行」 | 实测 2950 行 |
+| 本文件 | 「看板五块区域」 | 实测六块 |
+| 本文件 | 「`SKILL.md` 12 节 277 行」 | 实测 13 节 315 行 |
+| 本文件 | 「`community` 只有本project一个」 | 中文夹英文笔误 → 「本项目」 |
+| 提交指南 | 建仓步骤里的 Description **还是旧版**，与同一文件推荐的新版冲突 | 换成 102 字机制前置版，并加警示 |
+| 提交指南 | Issue 正文 / 自检表里的「52 项」「2570 行」「16.6 KB」「9.3 KB」全是旧数 | 全部按实测值更新（正文是实际提交物，写错会被看穿） |
+
+**这轮的方法**：不靠印象，把所有数字写成一个校验脚本跑一遍——
+脚本文件数、总行数、各文件字节数、`##` 章节数、HTML 区块数、Issue 正文字数、
+Description 字数声明，逐项与文档里的声称值比对，不一致就改。
+
+**验证**：陈旧表述复扫（`2570` / `urllib` / `五块` / `277 行` / `本project`）零命中。
 
 ---
 
@@ -207,9 +233,9 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 | **对话式需求拆解** | 策划案 → 12 节执行手册（`SKILL.md`），含意图路由表与交互指令映射表 |
 | **MCP 连接器** | 配置并驱动 `mcd-mcp`（11 个 Tool） |
 | **实调探索** | 发现 `list-nutrition-foods` 返回 TOON 格式这一文档未载的关键事实 |
-| **代码生成** | 14 个 Python 脚本，2570 行，**零第三方依赖** |
+| **代码生成** | 14 个 Python 脚本，2950 行，**零第三方依赖** |
 | **测试生成** | `selftest.py` 59 项断言，独立临时库，退出码 0 = 全绿 |
-| **可视化** | `render_debug.py` 生成单文件 HTML 看板，五块区域验证链路 |
+| **可视化** | `render_debug.py` 生成单文件 HTML 看板，六块区域验证链路 |
 | **网页抓取** | 读取官方大赛仓库 README 与正式规则，纠正策划案中的错误奖项设定 |
 | **长任务记忆** | 工作区记忆 `2026-10-09.md` 记录多轮迭代的全部决策与 Bug 修复 |
 
@@ -221,10 +247,10 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 
 | 证据 | 位置 / 复核方式 |
 |---|---|
-| 技能执行手册 | `SKILL.md`（12 节，277 行） |
+| 技能执行手册 | `SKILL.md`（13 节，315 行） |
 | 端到端自测 | `cd scripts && python3 selftest.py` → `✅ 全部通过`，退出码 0，59 项 PASS |
 | 可视化验证页 | `python3 render_debug.py` → 生成 `data/verify.html`，双击即看 |
-| 零依赖声明 | 14 个脚本仅 import 标准库（`sqlite3` / `json` / `hashlib` / `urllib` / `argparse`） |
+| 零依赖声明 | 14 个脚本仅 import Python 标准库（共 13 个：`argparse` `hashlib` `io` `itertools` `json` `os` `random` `re` `sqlite3` `subprocess` `sys` `tempfile` `datetime`），无第三方包 |
 | MCP 集成说明 | `MCP_INTEGRATION.md`（含 3 张 mermaid 时序图） |
 | 官方声明原文 | `CONTEST_DECLARATION.md`（从官方仓库原文下载，未改动） |
 | 脱敏配置 | `mcp-config.example.json`（仅 `${MCD_MCP_TOKEN}` 占位符） |

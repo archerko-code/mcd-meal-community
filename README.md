@@ -398,7 +398,7 @@ python3 render_debug.py --live   # 只读渲染真实库，不造演示数据
 <details>
 <summary><b>要装第三方库吗？</b></summary>
 
-不需要。14 个脚本**全部只用 Python 标准库**（sqlite3 / json / hashlib / urllib / argparse）。
+不需要。14 个脚本**全部只用 Python 标准库**（共 13 个：`argparse` / `hashlib` / `io` / `itertools` / `json` / `os` / `random` / `re` / `sqlite3` / `subprocess` / `sys` / `tempfile` / `datetime`），`pip install` 一个包都不用装。
 </details>
 
 <details>
