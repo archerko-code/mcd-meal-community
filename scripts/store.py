@@ -168,11 +168,20 @@ def _migrate(conn):
         conn.execute("ALTER TABLE posts ADD COLUMN product_ids TEXT")
 
 
+def _ensure_dir(path):
+    """确保 path 的父目录存在。
+
+    MCD_DB_PATH / MCD_SEEN_PATH 允许指向任意位置（演示库、临时库），
+    其父目录常常不存在；不兜底就会在 open()/sqlite3.connect() 处直接崩。
+    """
+    d = os.path.dirname(os.path.abspath(path))
+    if d and not os.path.isdir(d):
+        os.makedirs(d, exist_ok=True)
+    return d
+
+
 def get_conn():
-    # 自定义 MCD_DB_PATH 时，其父目录可能不存在（默认 DATA_DIR 之外）
-    db_dir = os.path.dirname(os.path.abspath(DB_PATH))
-    if db_dir and not os.path.isdir(db_dir):
-        os.makedirs(db_dir, exist_ok=True)
+    _ensure_dir(DB_PATH)
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
@@ -187,7 +196,7 @@ def init_db():
         conn.commit()
     finally:
         conn.close()
-    os.makedirs(DATA_DIR, exist_ok=True)
+    _ensure_dir(SEEN_PATH)
     if not os.path.exists(SEEN_PATH):
         with open(SEEN_PATH, "w", encoding="utf-8") as f:
             json.dump({"sessions": {}}, f, ensure_ascii=False, indent=2)
@@ -229,7 +238,7 @@ def _load_seen():
 
 
 def _save_seen(data):
-    os.makedirs(DATA_DIR, exist_ok=True)
+    _ensure_dir(SEEN_PATH)
     tmp = SEEN_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

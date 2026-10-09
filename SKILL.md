@@ -207,18 +207,27 @@ python3 order.py --ids "<product_ids逗号分隔>" --price <final_price> \
 读 `data.create_order_request` 交给 MCP `create-order`，返回存文件后回填：
 
 ```bash
+# 场景 A 的组合（已在 posts 表）：用 --hash
 python3 order.py --hash <combo_hash> --record ../data/mcp_cache/order_result.json \
+  --user <用户ID> --store-code <门店编码>
+
+# 场景 B 的组合（--ids 直通，未发帖）：回填时必须同样带 --ids，
+# 否则订单历史里查不到「这单点了什么」
+python3 order.py --ids "<product_ids逗号分隔>" --record ../data/mcp_cache/order_result.json \
   --user <用户ID> --store-code <门店编码>
 ```
 
 回填后返回 `order_no` 与 `pay_url`，**把支付链接原样转述给用户**，不要自己拼链接。
+返回里若出现 `warning`（实付与确认价有差额），先把差额讲清楚再给链接。
 
 **第三步 · 同步状态**
 
 ```bash
 python3 order.py --sync --order-no <订单号> --result ../data/mcp_cache/order_query.json
-python3 order.py --list --user <用户ID>
+python3 order.py --list --user <用户ID> --limit 10
 ```
+
+`--list` 返回 `total`（该用户订单总数）+ `returned`（本页条数）+ `orders`，不要拿 `returned` 当总数汇报。
 
 ### 免费冰水下单时必须改走备注
 
@@ -247,12 +256,14 @@ hot_score = (net_votes + 1)^0.8 / (hours_since_post + 2)^0.5
 1. **无可行组合**：脚本已自动放宽 10% 热量并允许单件，仍为空才报错；如实转述，不编造。
 2. **门店售罄/下架**：`query-meals` 未返回的餐品会在内连接时被剔除，属正常行为，告知用户即可。
 3. **营养数据匹配不上**：看 `data.stats.unmatched_nutrition`，把未能匹配的餐品名告知用户，并说明它们已被排除。
-4. **数据落盘**：MCP 原始返回一律写文件再喂脚本，**不要凭记忆改数字**。
-5. **限流**：MCP 每分钟 600 次。不要为每个候选组合都调 `calculate-price`，只对 Top3 调。
-6. **隐私**：不输出用户手机号、完整配送地址；门店与用户标识按脱敏处理。
-7. **社区数据**：只读写本技能 `data/community.db`，不碰其它数据库；`user_id` 用会话内稳定标识即可，不要索取真实身份。
-8. **下单不可自作主张**：`create-order` 是真实扣款动作，必须先复述订单要素并得到用户明确同意；支付链接只能转述 MCP 返回值，**不得自己构造**。`order.py --record` 返回的 `warning` 若提示实付与确认价有差额，**必须先向用户说明差额**，不得直接把支付链接甩过去。
-9. **虚拟商品不进订单**：`__ice_water__` 只能出现在本地组合与推荐展示里，下单前必须剥离并转成 `remark`。
+4. **搜索被截断**：`data.stats.truncated == true` 表示组合枚举撞到了硬上限、后面还有组合没算。
+   此时**必须告诉用户"结果可能不是全局最优"**，不要宣称已找全。常规菜单规模下该字段恒为 `false`。
+5. **数据落盘**：MCP 原始返回一律写文件再喂脚本，**不要凭记忆改数字**。
+6. **限流**：MCP 每分钟 600 次。不要为每个候选组合都调 `calculate-price`，只对 Top3 调。
+7. **隐私**：不输出用户手机号、完整配送地址；门店与用户标识按脱敏处理。
+8. **社区数据**：只读写本技能 `data/community.db`，不碰其它数据库；`user_id` 用会话内稳定标识即可，不要索取真实身份。
+9. **下单不可自作主张**：`create-order` 是真实扣款动作，必须先复述订单要素并得到用户明确同意；支付链接只能转述 MCP 返回值，**不得自己构造**。`order.py --record` 返回的 `warning` 若提示实付与确认价有差额，**必须先向用户说明差额**，不得直接把支付链接甩过去。
+10. **虚拟商品不进订单**：`__ice_water__` 只能出现在本地组合与推荐展示里，下单前必须剥离并转成 `remark`。
 
 ## 11. 脚本速查
 
@@ -269,7 +280,7 @@ hot_score = (net_votes + 1)^0.8 / (hours_since_post + 2)^0.5
 | `seen.py` | 已推列表查看/重置 | `--session --reset` |
 | `render_debug.py` | 生成可视化验证页 | `--samples --out --live` |
 | `checkout.py` | 核价：准备载荷 / 回填官方价 | `--hash\|--ids --store-code --order-type --coupon --confirm --price` |
-| `order.py` | 下单：载荷 / 记录 / 列表 / 同步 | `--hash\|--ids --store-code --record --list --sync --order-no --price` |
+| `order.py` | 下单：载荷 / 记录 / 列表 / 同步 | `--hash\|--ids --store-code --record --list --sync --order-no --price --title --summary` |
 | `selftest.py` | 端到端自测（独立临时库） | 直接运行，退出码 0 = 全通过 |
 | `store.py` | 共享数据层（被 import） | 直接运行 = 初始化 DB |
 

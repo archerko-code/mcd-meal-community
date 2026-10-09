@@ -86,7 +86,7 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 - `posts` 表新增 `product_ids` 列（`ALTER TABLE` 迁移，不重建库）——原表只有不可逆的 `combo_hash`，无法反查商品编码，下单链路走不通。
 - 新增第 4 张表 `orders`。
 - 兑现上一轮承诺：冰水作为虚拟商品，下单前由 `store.split_virtual()` 自动剥离出商品列表，改写进订单备注「请另附一杯免费冰水，谢谢」。
-- 自测从 22 项扩到 **52 项**（2026-10-09 审计后又补 15 项回归），新增下单全链路断言。
+- 自测从 22 项扩到 **59 项**（2026-10-09 两轮审计共补 22 项回归），新增下单全链路与候选剪枝断言。
 
 ### 第 4 轮 · 核对官方规则
 
@@ -164,7 +164,6 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 | 8 | `datetime.utcnow()` 在 Python 3.12+ 已弃用（3.13.14 实测触发 DeprecationWarning） | 改用 `datetime.now(timezone.utc)` |
 
 **顺带发现但未改的**（属设计约定或低风险，记录在案）：
-`MAX_COMBOS=60000` 触顶会静默截断（已加 `stats.truncated` 标记暴露出来）；
 餐品分类靠关键词启发式（`水` 在饮品词表里）可能误判；
 `render_debug` 的 `tempfile.mkdtemp` 不清理（演示用，无累积风险）。
 
@@ -172,7 +171,33 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 因为那条测试以前**靠的是「重复发布会清空营养字段」这个 bug** 才让紧约束筛不出结果。
 测试在为一个 bug 作证。已把测试约束降到 `--max-calories 0.5` 让它真正触发降级。
 
-**验证**：`selftest.py` 从 37 项扩到 **52 项**，含 6 个 bug 的针对性回归，退出码 0。
+**验证**：`selftest.py` 从 37 项扩到 **59 项**，含 11 个 bug 的针对性回归，退出码 0。
+
+---
+
+### 第 8 轮 · 第二轮代码复核（用户指令：「两个AI帮你遍历了一下代码bug，你确认一下是否有问题」）
+
+本轮由本地独立复核完成（两个外部 AI 的报告未送达，故不引用，全部结论均在本机复现验证）。
+新增 5 处缺陷，全部修复并补回归断言：
+
+| # | 问题（均已实测复现） | 修复 |
+|---|---|---|
+| 1 | **候选剪枝蛋白质盲区**：`build_candidates()` 每分类只按「价格升序 ∪ 热量降序」取并集，**蛋白质从来不是排序维度**。构造 41 个主餐、蛋白质最高者排在中间 → 剪枝后该餐品被丢弃。后果：用户要 40g 蛋白，明明有解却给次优解，极端情况下报「无解」 | 改为「价格 / 热量 / 蛋白质」三个排名**轮流取**，凑满 `CAT_CAP`；蛋白质最优餐品必定入选 |
+| 2 | **候选集膨胀会撞上静默截断**：并集写法让候选数达 3×`CAT_CAP`，组合数按平方爆炸（实测真实菜单量级可达 18 万条），撞到 `MAX_COMBOS=60000` 后 `return combos` **按顺序丢弃后半段**。且 `truncated` 标志是用「去重后条数」猜的，截断了也报 false | 候选锁死在 `CAT_CAP`（组合数上限收敛到约 1.3 万，常规规模永不触发截断）；`enumerate_combos` 改为返回 `(combos, truncated)`，**如实上报** |
+| 3 | **`order.py --record --ids` 丢组合信息**：这是 SKILL.md 推荐的直通下单路径，但 `record()` 只从 posts 表取 `product_ids`，`--ids` 模式下拿不到 → orders 表 `product_ids` 与 `stripped_virtual` 全写成 `[]`，订单历史查不出「这单点了什么」，冰水备注也无从追溯 | `record()` 在 posts 未命中且给了 `--ids` 时自行合成组合，`product_ids` / 冰水剥离 / 备注全部落库 |
+| 4 | **`order.py --list` 的 `total` 是本页条数**：与第 7 轮修好的 `query_posts` 同款问题，`order` 漏改（库内 3 条、`--limit 1` → 报 total=1） | 拆成 `total`（符合条件总数）+ `returned`（本页条数），与 `query_posts` 口径统一 |
+| 5 | **分层降级只在给了热量时才走 tier2**：`if not pool and args.max_calories` 把触发条件写死。用户只给 `--max-price` 时 tier1 抽空后**直接跳到 tier3**，播报「放宽后仍无新组合」——但 tier2 压根没试过，等于对用户撒谎；更糟的是 tier3 会**忽略全部约束**（用户说 ≤¥9，却可能推 ¥30 的组合） | tier2 按「实际给了哪个约束」放宽（热量/价格各自 120%），提示文案同步如实列出；新增 `_fmt()` 去掉 `720.0` 这种多余小数 |
+
+另修一处健壮性：`MCD_SEEN_PATH` 指向不存在的目录时 `init_db` / `_save_seen` 直接崩（实测 `Traceback`），
+抽出 `_ensure_dir()` 统一兜底父目录，DB 与 SEEN 两条路径都覆盖。
+
+**测试在作证的反面案例（本轮 2 处）**：
+- 加蛋白质维度后，若沿用「并集」写法会让候选数膨胀——**断言 `每分类不超过 CAT_CAP` 才逼出轮流取方案**；
+- 只测 `--max-price` 的降级用例一开始设计成「放宽后仍无解」，测的其实是 tier3，
+  改成「放宽后命中且不越界」才真正锁住 tier2 的存在。
+
+**验证**：`selftest.py` 59 项断言全绿（新增 7 项针对性回归），退出码 0；看板 `docs/index.html` 已按新逻辑重生成
+（tier2 说明文案可见变化：`已放宽热量上限至 720kcal（120%）、价格上限至 ¥36（120%）`）。
 
 ---
 
@@ -183,10 +208,10 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 | **MCP 连接器** | 配置并驱动 `mcd-mcp`（11 个 Tool） |
 | **实调探索** | 发现 `list-nutrition-foods` 返回 TOON 格式这一文档未载的关键事实 |
 | **代码生成** | 14 个 Python 脚本，2570 行，**零第三方依赖** |
-| **测试生成** | `selftest.py` 52 项断言，独立临时库，退出码 0 = 全绿 |
+| **测试生成** | `selftest.py` 59 项断言，独立临时库，退出码 0 = 全绿 |
 | **可视化** | `render_debug.py` 生成单文件 HTML 看板，五块区域验证链路 |
 | **网页抓取** | 读取官方大赛仓库 README 与正式规则，纠正策划案中的错误奖项设定 |
-| **长任务记忆** | 工作区记忆 `2026-10-09.md`（9388 字节）记录三轮迭代的全部决策与 Bug |
+| **长任务记忆** | 工作区记忆 `2026-10-09.md` 记录多轮迭代的全部决策与 Bug 修复 |
 
 ---
 
@@ -197,7 +222,7 @@ sql += " AND total_calories IS NOT NULL AND total_calories <= ?"
 | 证据 | 位置 / 复核方式 |
 |---|---|
 | 技能执行手册 | `SKILL.md`（12 节，277 行） |
-| 端到端自测 | `cd scripts && python3 selftest.py` → `✅ 全部通过`，退出码 0，52 项 PASS |
+| 端到端自测 | `cd scripts && python3 selftest.py` → `✅ 全部通过`，退出码 0，59 项 PASS |
 | 可视化验证页 | `python3 render_debug.py` → 生成 `data/verify.html`，双击即看 |
 | 零依赖声明 | 14 个脚本仅 import 标准库（`sqlite3` / `json` / `hashlib` / `urllib` / `argparse`） |
 | MCP 集成说明 | `MCP_INTEGRATION.md`（含 3 张 mermaid 时序图） |

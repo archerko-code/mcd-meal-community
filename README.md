@@ -11,7 +11,7 @@
 
 [![MCP](https://img.shields.io/badge/MCP-mcp.mcd.cn-D52B1E)](https://open.mcd.cn/mcp)
 [![Tools](https://img.shields.io/badge/MCP%20Tools-11-FFC72C)](#麦当劳-mcp-工具清单)
-[![Tests](https://img.shields.io/badge/selftest-52%20passed-3ba55d)](#可视化验证与自测)
+[![Tests](https://img.shields.io/badge/selftest-59%20passed-3ba55d)](#可视化验证与自测)
 [![License](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
 <img src="./assets/hero.png" alt="麦麦营养搭子 · 组合搜索结果与社区热榜可视化验证看板" width="100%">
@@ -320,7 +320,7 @@ mcd-meal-community/
 cd scripts && python3 selftest.py
 ```
 
-52 项断言覆盖：组合搜索的三约束过滤与降级、免费冰水补全与虚拟商品剥离、券后价计算、社区读写与哈希打通、顶踩改票、热榜排序、核价-下单-记录-同步全链路。**退出码 0 为全绿。**
+59 项断言覆盖：组合搜索的三约束过滤与降级、候选剪枝的三个维度（价格/热量/蛋白质）、免费冰水补全与虚拟商品剥离、券后价计算（含折扣写法归一）、社区读写与哈希打通、顶踩改票、热榜排序、核价-下单-记录-同步全链路，以及两轮代码复核发现的 11 个 bug 的针对性回归。**退出码 0 为全绿。**
 
 ### 可视化看板
 

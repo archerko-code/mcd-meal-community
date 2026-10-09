@@ -150,6 +150,22 @@ def record(args):
     status = str(pick(obj, "orderStatus", "status", "state", default="created"))
 
     row = _post(args.hash) if args.hash else None
+    # ⚠️ --ids 直通（推荐路径）时组合从未进过 posts 表，这里必须自己补一条，
+    #    否则 orders 表里的 product_ids / stripped_virtual 会留空，
+    #    订单历史就查不出「这单到底点了什么」，冰水备注也无从追溯。
+    if row is None and args.ids:
+        ids = [x.strip() for x in args.ids.split(",") if x.strip()]
+        if ids:
+            row = {
+                "combo_hash": args.hash or store.combo_hash(ids),
+                "title": args.title,
+                "combo_summary": args.summary,
+                "product_ids": json.dumps(ids, ensure_ascii=False),
+                "total_price": args.price,
+            }
+    row_ids = _ids(row) if row else []
+    real_ids, virt_names = store.split_virtual(row_ids)
+
     store.init_db()
     conn = store.get_conn()
     try:
@@ -162,10 +178,9 @@ def record(args):
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
             (args.hash, (row or {}).get("title"), args.user, args.store_code,
              args.order_type,
-             json.dumps(_ids(row) if row else [], ensure_ascii=False),
-             json.dumps(store.split_virtual(_ids(row))[1] if row else [],
-                        ensure_ascii=False),
-             store.VIRTUAL_REMARK if row and store.split_virtual(_ids(row))[1] else None,
+             json.dumps(row_ids, ensure_ascii=False),
+             json.dumps(virt_names, ensure_ascii=False),
+             store.VIRTUAL_REMARK if virt_names else None,
              args.coupon,
              (row or {}).get("total_price"), args.confirmed_price, paid,
              str(order_no) if order_no is not None else None,
@@ -206,17 +221,21 @@ def list_orders(args):
     store.init_db()
     conn = store.get_conn()
     try:
-        sql = "SELECT * FROM orders"
-        params = []
+        where, params = "", []
         if args.user:
-            sql += " WHERE user_id = ?"
+            where = " WHERE user_id = ?"
             params.append(args.user)
-        sql += " ORDER BY id DESC LIMIT ?"
-        params.append(max(1, args.limit))
-        rows = [dict(r) for r in conn.execute(sql, params)]
+        # total = 符合条件的历史订单总数（翻页/计数依据）；returned = 本页条数。
+        # 与 query_posts.py 口径保持一致：total 绝不能报成 limit 的结果。
+        total = int(conn.execute(
+            "SELECT COUNT(*) AS c FROM orders" + where, params).fetchone()["c"])
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM orders" + where + " ORDER BY id DESC LIMIT ?",
+            params + [max(1, args.limit)])]
     finally:
         conn.close()
-    print(json.dumps({"ok": True, "data": {"total": len(rows), "orders": rows}},
+    print(json.dumps({"ok": True, "data": {"total": total, "returned": len(rows),
+                                           "orders": rows}},
                      ensure_ascii=False, indent=2))
     return 0
 

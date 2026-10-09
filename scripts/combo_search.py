@@ -298,8 +298,8 @@ def best_coupon(price, item_ids, coupons):
 
 
 # ---------------- 主流程 ----------------
-CAT_CAP = 12          # 每分类剪枝保留的候选数
-MAX_COMBOS = 60000    # 组合枚举硬上限
+CAT_CAP = 12          # 每分类剪枝后的候选总数（是「总数上限」，不是每个维度各 12）
+MAX_COMBOS = 60000    # 组合枚举兜底上限（常规规模远达不到，见下方穷举策略）
 
 # 内置虚拟赠饮：免费冰水（0 元 0 卡），让「单品 + 冰水」成为最划算的完整一餐。
 # 固定 ID 保证跨会话哈希稳定；组合中至少需含一件真实餐品，冰水不会单独成餐。
@@ -338,29 +338,58 @@ def build_candidates(products, max_cal, max_price, nutrition, per_cat=CAT_CAP):
             "price": p["price"], "kcal": kcal, "protein": prot or 0.0,
         })
 
-    # 每分类剪枝：按价格升序取前 per_cat，并按热量升序取前 per_cat，取并集
+    # 每分类剪枝：把「价格最低 / 热量最高 / 蛋白质最高」三个排名轮流取，凑满 per_cat 个。
+    #
+    # 为什么是「轮流取」而不是「各取前 N 再并集」：
+    #   1) 蛋白质必须独立成维度——它和价格/热量并不同向。高蛋白餐品往往又贵又高热，
+    #      只按价格+热量剪枝会把它们整批丢掉，结果就是「用户要 40g 蛋白，明明有解，
+    #      工具却报无解，或者给一个刚过线的次优解」。
+    #   2) 并集写法会让候选数膨胀到 3×per_cat，组合数按平方级爆炸，直接撞上
+    #      MAX_COMBOS 截断；而截断是「按顺序取」，等于静默丢掉后半段组合——
+    #      比搜索空间小一点更糟。轮流取把候选数锁死在 per_cat，保证下面能穷举完。
     bucket = {}
     for m in merged:
         bucket.setdefault(m["category"], []).append(m)
     kept = {}
     for cat, items in bucket.items():
-        by_price = sorted(items, key=lambda x: x["price"])[:per_cat]
-        by_kcal = sorted(items, key=lambda x: -x["kcal"])[:per_cat]  # 热量高的通常更饱腹
+        ranked = (
+            sorted(items, key=lambda x: x["price"]),        # 便宜优先
+            sorted(items, key=lambda x: -x["kcal"]),        # 热量高的通常更饱腹
+            sorted(items, key=lambda x: -x["protein"]),     # 高蛋白优先（不可省）
+        )
         seen_ids, union = set(), []
-        for it in by_price + by_kcal:
-            if it["id"] not in seen_ids:
-                seen_ids.add(it["id"])
-                union.append(it)
+        i = 0
+        while len(union) < per_cat:
+            progressed = False
+            for lst in ranked:
+                if i >= len(lst):
+                    continue
+                progressed = True
+                it = lst[i]
+                if it["id"] not in seen_ids:
+                    seen_ids.add(it["id"])
+                    union.append(it)
+                    if len(union) >= per_cat:
+                        break
+            if not progressed:
+                break
+            i += 1
         kept[cat] = union
     return kept, missing
 
 
 def enumerate_combos(kept, max_cal, max_price, min_items=2):
+    """穷举「主餐1~2 + 配餐0~1 + 饮品0~1」。
+
+    返回 (combos, truncated)。truncated 表示已撞到 MAX_COMBOS、后面还有组合没枚举。
+    ⚠️ 截断必须如实上报——搜索被砍一半却报「已找全」，用户会拿到次优解还以为是最优。
+    """
     mains = kept.get("main", [])
     sides = [None] + kept.get("side", [])
     drinks = [None] + kept.get("drink", [])
 
     combos = []
+    truncated = False
     # 结构：主餐1~2 + 配餐0~1 + 饮品0~1，总数 1~3
     main_pairs = [(m,) for m in mains]
     main_pairs += [(a, b) for a, b in itertools.combinations(mains, 2)]
@@ -386,8 +415,8 @@ def enumerate_combos(kept, max_cal, max_price, min_items=2):
                     "price": price,
                 })
                 if len(combos) >= MAX_COMBOS:
-                    return combos
-    return combos
+                    return combos, True
+    return combos, truncated
 
 
 def attach_ice_water(combos, ice_item, max_items=3):
@@ -451,9 +480,10 @@ def main():
     ]
     combos, kept, missing = [], {}, []
     max_cal, relaxed, notice = args.calories, False, ""
+    truncated = False
     for cap, rlx, nt in attempts:
         kept, missing = build_candidates(products, cap, args.price, nutrition)
-        raw = enumerate_combos(kept, cap, args.price, args.min_items)
+        raw, truncated = enumerate_combos(kept, cap, args.price, args.min_items)
         if ice_water:
             raw = attach_ice_water(raw, ICE_WATER, 3)
         combos = dedupe(raw)
@@ -550,7 +580,7 @@ def main():
              "effective_calories_cap": max_cal,
              "stats": {"menu_items": len(products), "candidates": sum(len(v) for v in kept.values()),
                        "combos": len(combos), "coupons": len(coupons),
-                       "truncated": len(combos) >= MAX_COMBOS,
+                       "truncated": truncated,
                        "unmatched_nutrition": sorted(set(missing))[:20]},
              "plans": plans}},
         ensure_ascii=False, indent=2))

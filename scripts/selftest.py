@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""端到端自测：覆盖策划案测试场景 1-10 + 新增行为。
-
+"""端到端自测：覆盖策划案测试场景 1-10 + 两轮代码复核的回归。
 覆盖点：
   组合搜索：免费冰水自动附加 / 允许单品 / 多券来源合并 / combo_hash 稳定
+           候选剪枝保留「价格低 ∪ 热量高 ∪ 蛋白质高」三方向 / 截断如实上报
   社区：发布去重更新 / 顶踩改票防重复 / 评论隔离
-  采样：换一个不重复 / 分层降级 tier>=2 / 池耗尽返回 null
+  采样：换一个不重复 / 分层降级 tier>=2（只给价格约束也要走 tier2）/ 池耗尽返回 null
+  下单：核价->下单->记录->同步 / --ids 直通 / 实付与确认价差额告警
   排序：hot / new / price / calories
+  健壮性：自定义 DB/SEEN 路径父目录不存在时自动创建
 
 用法：
   python3 selftest.py            # 独立临时库，不影响正式数据
 
-退出码 0 = 全部通过，1 = 有失败项。
+退出码 0 = 全部通过，1 = 有失败项。当前共 59 项断言。
 """
 import os
 import re
@@ -321,6 +323,80 @@ def main():
     # 面额大于原价时不得报 ¥0
     c = dict(base, coupon_id="Z2", discount=None, amount=99)
     check("面额>原价时不报 ¥0", coupon_final_price(c, 20.0, []) is None)
+
+    print("== 回归：2026-10-09 第二轮复核发现的 5 个 bug ==")
+    from combo_search import build_candidates, CAT_CAP, enumerate_combos
+
+    # ⑦ 候选剪枝必须保留「蛋白质最高」的餐品（否则高蛋白需求会报次优/无解）
+    fake_p, fake_n = [], []
+    for i in range(40):
+        fake_p.append({"id": "Q%03d" % i, "name": "堡%s" % i, "category": "main",
+                       "price": 10.0 + i})
+        fake_n.append({"productName": "堡%s" % i, "energyKcal": str(100 + i * 10),
+                       "protein": str(5 + i)})
+    fake_p.append({"id": "STAR", "name": "堡STAR", "category": "main", "price": 25.0})
+    fake_n.append({"productName": "堡STAR", "energyKcal": "300", "protein": "50"})
+    kk, _ = build_candidates(fake_p, 600, 100, fake_n)
+    kn = [x["name"] for x in kk.get("main", [])]
+    check("剪枝保留蛋白质最优餐品（不再蛋白质盲区）", "堡STAR" in kn,
+          f"保留 {len(kn)}/{len(fake_p)}，堡STAR={'在' if '堡STAR' in kn else '不在'}")
+    check("剪枝后每分类不超过 CAT_CAP（不膨胀、不触发截断）",
+          all(len(v) <= CAT_CAP for v in kk.values()),
+          str({k: len(v) for k, v in kk.items()}))
+
+    # ⑧ enumerate_combos 的截断必须如实上报（不能靠去重后条数猜）
+    fake_kept = {"main": [{"id": "M%d" % i, "name": "m", "category": "main",
+                           "price": 10.0, "kcal": 100.0, "protein": 5.0}
+                          for i in range(30)]}
+    cb, tr = enumerate_combos(fake_kept, 9999, 9999, 1)
+    check("enumerate_combos 返回 (combos, truncated) 二元组",
+          isinstance(cb, list) and isinstance(tr, bool) and cb and tr is False,
+          f"combos={len(cb)} truncated={tr}")
+
+    # ⑨ order.py --record --ids 必须把组合写进订单（原先是空 []）
+    ord_f = os.path.join(tmp, "rec_ids.json")
+    with open(ord_f, "w", encoding="utf-8") as f:
+        json.dump({"data": {"orderNo": "ADHOC-9", "payUrl": "https://x/9",
+                            "payAmount": 16.0}}, f, ensure_ascii=False)
+    run("order.py", "--record", ord_f, "--ids", "1001,2002",
+        "--confirmed-price", "15.5", "--user", "u_adhoc", env=env)
+    rl = run("order.py", "--list", "--user", "u_adhoc", env=env)
+    row_o = rl["data"]["orders"][0]
+    check("--ids 直通下单时组合信息落到 orders 表",
+          json.loads(row_o["product_ids"] or "[]") == ["1001", "2002"],
+          str(row_o["product_ids"]))
+
+    # ⑩ order.py --list 的 total 是总数、returned 是本页数
+    for i in range(3):
+        of3 = os.path.join(tmp, "m%d.json" % i)
+        with open(of3, "w", encoding="utf-8") as f:
+            json.dump({"data": {"orderNo": "MU%d" % i, "payUrl": "https://x/m%d" % i,
+                                "payAmount": 10.0 + i}}, f, ensure_ascii=False)
+        run("order.py", "--record", of3, "--ids", "77%02d" % i, "--user", "u_multi",
+            env=env)
+    rl2 = run("order.py", "--list", "--user", "u_multi", "--limit", "1", env=env)
+    check("order --list total=总数 / returned=本页数",
+          rl2["data"]["total"] == 3 and rl2["data"]["returned"] == 1,
+          f"total={rl2['data']['total']} returned={rl2['data']['returned']}")
+
+    # ⑪ 只给 --max-price 时也要走 tier2（放宽后守住上界），不能直接跳 tier3
+    env2 = {"MCD_DB_PATH": os.path.join(tmp, "t2.db"),
+            "MCD_SEEN_PATH": os.path.join(tmp, "t2_seen.json")}
+    for i, (cal, pr) in enumerate([(300, 10), (400, 20), (500, 30)]):
+        run("write_post.py", "--ids", "60%02d" % i, "--title", "T%d" % i,
+            "--summary", "S%d" % i, "--calories", str(cal), "--price", str(pr),
+            env=env2)
+    dt = run("sample_recommend.py", "--max-price", "9", "--session", "a",
+             env=env2)["data"]
+    check("只给价格约束时进入 tier2 且不越界（原先是直接跳 tier3）",
+          dt["tier"] == 2 and dt["picked"] and dt["picked"]["total_price"] <= 10.8,
+          f"tier={dt['tier']} price={dt['picked']['total_price'] if dt['picked'] else None}")
+
+    # ⑫ 自定义 SEEN/DB 路径的父目录不存在时不得崩
+    env3 = {"MCD_DB_PATH": os.path.join(tmp, "nd", "deep", "x.db"),
+            "MCD_SEEN_PATH": os.path.join(tmp, "nd", "deep", "x_seen.json")}
+    sn = run("seen.py", "--session", "x", env=env3)
+    check("自定义路径父目录不存在时自动创建不崩", sn and sn["ok"], str(sn)[:80])
 
     print()
     if FAILS:
